@@ -1,0 +1,21 @@
+{
+ "version": "1.1.0",
+ "fecha": "2026-11-10",
+ "novedades": [
+  "La app te avisa cuando hay una versión nueva y se actualiza con un clic",
+  "Una cámara que no tiene columna en el estadístico se crea sola y se suma como las demás",
+  "Lectura más robusta de reportes (días de 4 cifras, solo sonido, audio mezclado)",
+  "Escribe el primer día en hojas vacías y combina celdas como la plantilla"
+ ],
+ "mac_arm64": {
+  "archivo": "Estadistico_FilmFlow_Mac.zip",
+  "url": "https://github.com/filmflowtv/FilmFlow-descargas/releases/download/v1.1.0/Estadistico_FilmFlow_Mac.zip",
+  "tamano": 56946568,
+  "sha256": "533d2c55384cd3ace1192138c1aa389c317f9e7797cb113ea785720be22548f1"
+ },
+ "dmg_arm64": {
+  "archivo": "Estadistico_FilmFlow.dmg",
+  "url": "https://github.com/filmflowtv/FilmFlow-descargas/releases/download/v1.1.0/Estadistico_FilmFlow.dmg",
+  "tamano": 73379906
+ }
+}

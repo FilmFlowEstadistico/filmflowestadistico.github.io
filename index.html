@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Estadístico FilmFlow · Descargar</title>
+<meta name="description" content="Descarga la app Estadístico FilmFlow para Mac y ábrela en tu celular.">
+<link rel="icon" href="app/assets/icono-192.png">
+<link rel="apple-touch-icon" href="app/assets/icono-180.png">
+<link rel="stylesheet" href="app/paleta.css">
+<style>
+  :root{--r:22px}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--fondo);color:var(--texto);font:16px/1.5 -apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",Arial,sans-serif;-webkit-font-smoothing:antialiased}
+  main{max-width:880px;margin:0 auto;padding:40px 16px 64px}
+  header{display:flex;flex-direction:column;align-items:center;text-align:center;gap:10px;margin-bottom:34px}
+  header img{height:44px}
+  .logo-oscuro{display:none}
+  @media (prefers-color-scheme: dark){.logo-claro{display:none}.logo-oscuro{display:block}}
+  h1{font-size:30px;line-height:1.15;margin:8px 0 0;letter-spacing:-.02em}
+  .sub{color:var(--texto2);margin:0}
+  .chip{display:inline-flex;gap:8px;align-items:center;background:var(--seleccion);color:var(--acento-texto);border-radius:999px;padding:5px 14px;font-size:14px;font-weight:600}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media (max-width:720px){.grid{grid-template-columns:1fr}}
+  .tarjeta{background:var(--superficie);border:1px solid var(--separador);border-radius:var(--r);padding:24px}
+  .tarjeta h2{font-size:20px;margin:0 0 4px;display:flex;align-items:center;gap:10px}
+  .tarjeta h2 svg{width:24px;height:24px;flex:none;color:var(--acento-ui)}
+  .botones{display:flex;flex-wrap:wrap;gap:10px;margin:18px 0 6px}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:0 20px;border-radius:999px;font-weight:600;font-size:15px;
+       text-decoration:none;border:1px solid var(--separador);background:var(--boton);color:var(--texto);cursor:pointer}
+  .btn:hover{background:var(--boton-hover)}
+  .btn.principal{background:var(--acento);border-color:var(--acento);color:var(--sobre-acento)}
+  .btn.principal:hover{background:var(--acento-hover)}
+  .btn[hidden]{display:none}
+  .peso{font-weight:400;opacity:.75;font-size:13px}
+  ol{margin:14px 0 0;padding-left:22px;color:var(--texto2)}
+  ol li{margin:6px 0}
+  b,strong{color:var(--texto)}
+  details{margin-top:14px;border-top:1px solid var(--separador);padding-top:12px}
+  summary{cursor:pointer;font-weight:600;color:var(--acento-texto)}
+  .novedades{margin-top:16px}
+  .novedades ul{margin:10px 0 0;padding-left:20px;color:var(--texto2)}
+  .nota{font-size:13px;color:var(--texto2);text-align:center;margin-top:30px}
+  #toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--texto);color:var(--fondo);padding:10px 18px;border-radius:999px;font-size:14px;opacity:0;transition:opacity .2s;pointer-events:none}
+  #toast.on{opacity:1}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <img class="logo-claro" src="app/assets/logo_filmflow_claro.png" alt="FilmFlow">
+    <img class="logo-oscuro" src="app/assets/logo_filmflow_oscuro.png" alt="FilmFlow">
+    <h1>Estadístico FilmFlow</h1>
+    <p class="sub">Lee los reportes de Silverstack y llena el estatus de tarjetas y el estadístico de tu proyecto.</p>
+    <span class="chip" id="version">Última versión</span>
+  </header>
+
+  <div class="grid">
+    <section class="tarjeta">
+      <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>Para tu Mac</h2>
+      <p class="sub">Se instala una vez. Después la app te avisa sola cuando hay una versión nueva y se actualiza con un clic.</p>
+      <div class="botones">
+        <a class="btn principal" id="mac" href="#" title="Bajar el instalador para Mac con chip Apple (M1, M2, M3, M4…).">Descargar para Mac <span class="peso" id="peso-mac"></span></a>
+        <a class="btn" id="mac-intel" href="#" hidden title="Bajar el instalador para Mac con procesador Intel (Mac de 2020 o antes).">Mac con Intel <span class="peso" id="peso-intel"></span></a>
+      </div>
+      <ol>
+        <li>Abre el archivo descargado y arrastra <b>Estadistico FilmFlow</b> a <b>Aplicaciones</b>.</li>
+        <li>Ábrela. La primera vez el Mac dice que no puede comprobar la app (no está en la App Store): ve a
+          <b>Configuración del Sistema → Privacidad y seguridad</b>, baja hasta el final y pulsa <b>«Abrir igualmente»</b>. Solo se hace una vez.</li>
+        <li>Pulsa <b>«Iniciar sesión con Google»</b>: tus proyectos llegan solos.</li>
+      </ol>
+      <details>
+        <summary>¿Mi Mac es «chip Apple» o «Intel»?</summary>
+        <p class="sub">Menú  → <b>Acerca de este Mac</b>. Si dice <b>Chip: Apple M…</b> usa el botón verde. Si dice <b>Procesador: Intel</b> usa «Mac con Intel».</p>
+      </details>
+    </section>
+
+    <section class="tarjeta">
+      <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M10.5 18.5h3"/></svg>Para tu celular</h2>
+      <p class="sub">No se descarga de ninguna tienda: se abre en el navegador y queda como una app en tu pantalla. Se actualiza sola.</p>
+      <div class="botones">
+        <a class="btn principal" href="app/index.html" title="Abrir la app del celular en este navegador.">Abrir la app</a>
+        <button class="btn" id="compartir" type="button" title="Mandar este enlace a otro data manager (WhatsApp, correo…).">Compartir enlace</button>
+      </div>
+      <ol>
+        <li><b>iPhone:</b> abre «Abrir la app» en <b>Safari</b>, toca <b>Compartir</b> (el cuadrito con la flecha) → <b>«Agregar a inicio»</b>.</li>
+        <li><b>Android:</b> en <b>Chrome</b>, toca el menú <b>⋮</b> → <b>«Instalar app»</b> (o «Agregar a la pantalla principal»).</li>
+        <li>Ábrela desde el ícono de FilmFlow e inicia sesión con tu cuenta de Google.</li>
+      </ol>
+    </section>
+  </div>
+
+  <section class="tarjeta novedades" id="caja-novedades" hidden>
+    <h2>Novedades de esta versión</h2>
+    <ul id="novedades"></ul>
+  </section>
+
+  <p class="nota">Uso interno de FilmFlow. El Mac y el celular comparten tus proyectos a través de tu cuenta de Google
+    (hoja «FILMFLOW_CONFIG (no borrar)»).</p>
+</main>
+<div id="toast"></div>
+<script>
+  const REPO = "https://github.com/filmflowtv/FilmFlow-descargas/releases/latest/download/";
+  const mb = (b) => b ? `· ${Math.round(b / 1e6)} MB` : "";
+  const toast = (t) => { const e = document.getElementById("toast"); e.textContent = t; e.classList.add("on"); setTimeout(() => e.classList.remove("on"), 3000); };
+  document.getElementById("mac").href = REPO + "Estadistico_FilmFlow.dmg";
+  document.getElementById("mac-intel").href = REPO + "Estadistico_FilmFlow_Intel.dmg";
+  fetch("version.json?t=" + Date.now(), { cache: "no-store" }).then((r) => r.json()).then((v) => {
+    const f = v.fecha ? new Date(v.fecha + "T12:00:00").toLocaleDateString("es-CO", { day: "numeric", month: "long", year: "numeric" }) : "";
+    document.getElementById("version").textContent = `Versión ${v.version}${f ? " · " + f : ""}`;
+    if (v.dmg_arm64) document.getElementById("peso-mac").textContent = mb(v.dmg_arm64.tamano);
+    if (v.dmg_intel) { const b = document.getElementById("mac-intel"); b.hidden = false; document.getElementById("peso-intel").textContent = mb(v.dmg_intel.tamano); }
+    if (v.novedades && v.novedades.length) {
+      document.getElementById("novedades").innerHTML = v.novedades.map((n) => `<li>${String(n).replace(/[<&]/g, (c) => c === "<" ? "&lt;" : "&amp;")}</li>`).join("");
+      document.getElementById("caja-novedades").hidden = false;
+    }
+  }).catch(() => {});
+  document.getElementById("compartir").onclick = async () => {
+    const url = location.href.split("#")[0].split("?")[0];
+    try { if (navigator.share) { await navigator.share({ title: "Estadístico FilmFlow", text: "Instala la app Estadístico FilmFlow:", url }); return; } } catch (e) { if (e.name === "AbortError") return; }
+    try { await navigator.clipboard.writeText(url); toast("Enlace copiado"); } catch (e) { toast(url); }
+  };
+</script>
+</body>
+</html>
