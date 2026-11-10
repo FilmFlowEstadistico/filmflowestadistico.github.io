@@ -4,122 +4,144 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Estadístico FilmFlow · Descargar</title>
-<meta name="description" content="Descarga la app Estadístico FilmFlow para Mac y ábrela en tu celular.">
+<meta name="description" content="Descarga Estadístico FilmFlow para Mac y úsala en tu celular. Guía ilustrada paso a paso.">
+<meta name="theme-color" content="#07100D">
 <link rel="icon" href="app/assets/icono-192.png">
 <link rel="apple-touch-icon" href="app/assets/icono-180.png">
-<link rel="stylesheet" href="app/paleta.css">
 <style>
-  :root{--r:22px}
+  :root{--verde:#00B85A;--verde2:#34C77B;--texto:#F2F4F3;--texto2:#9FB5AA;--tarjeta:rgba(20,30,26,.72);--borde:rgba(255,255,255,.09);color-scheme:dark}
   *{box-sizing:border-box}
-  body{margin:0;background:var(--fondo);color:var(--texto);font:16px/1.5 -apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",Arial,sans-serif;-webkit-font-smoothing:antialiased}
-  main{max-width:880px;margin:0 auto;padding:40px 16px 64px}
-  header{display:flex;flex-direction:column;align-items:center;text-align:center;gap:10px;margin-bottom:34px}
-  header img{height:44px}
-  .logo-oscuro{display:none}
-  @media (prefers-color-scheme: dark){.logo-claro{display:none}.logo-oscuro{display:block}}
-  h1{font-size:30px;line-height:1.15;margin:8px 0 0;letter-spacing:-.02em}
-  .sub{color:var(--texto2);margin:0}
-  .chip{display:inline-flex;gap:8px;align-items:center;background:var(--seleccion);color:var(--acento-texto);border-radius:999px;padding:5px 14px;font-size:14px;font-weight:600}
-  .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-  @media (max-width:720px){.grid{grid-template-columns:1fr}}
-  .tarjeta{background:var(--superficie);border:1px solid var(--separador);border-radius:var(--r);padding:24px}
-  .tarjeta h2{font-size:20px;margin:0 0 4px;display:flex;align-items:center;gap:10px}
-  .tarjeta h2 svg{width:24px;height:24px;flex:none;color:var(--acento-ui)}
-  .botones{display:flex;flex-wrap:wrap;gap:10px;margin:18px 0 6px}
-  .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:0 20px;border-radius:999px;font-weight:600;font-size:15px;
-       text-decoration:none;white-space:nowrap;border:1px solid var(--separador);background:var(--boton);color:var(--texto);cursor:pointer}
-  .btn:hover{background:var(--boton-hover)}
-  .btn.principal{background:var(--acento);border-color:var(--acento);color:var(--sobre-acento)}
-  .btn.principal:hover{background:var(--acento-hover)}
+  html{background:#07100D}
+  body{margin:0;color:var(--texto);font:16px/1.55 -apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",Arial,sans-serif;-webkit-font-smoothing:antialiased;
+       background:#07100D url(fondo.jpg) center top/cover fixed no-repeat;min-height:100vh}
+  @supports (-webkit-touch-callout:none){body{background-attachment:scroll}}
+  body::before{content:"";position:fixed;inset:0;background:radial-gradient(ellipse at 50% 0%,rgba(29,74,54,.35),transparent 60%),linear-gradient(180deg,rgba(7,16,13,.15),rgba(7,16,13,.75));pointer-events:none;z-index:-1}
+  main{max-width:1080px;margin:0 auto;padding:max(48px,env(safe-area-inset-top)) 16px 64px}
+  .hero{text-align:center;padding:24px 0 40px}
+  .hero .logo{width:min(220px,58vw);height:auto;margin-bottom:22px}
+  h1{font-size:clamp(30px,6vw,48px);line-height:1.1;margin:0 0 12px;letter-spacing:-.025em;font-weight:800}
+  h1 span{color:var(--verde2)}
+  .lead{color:var(--texto2);font-size:clamp(16px,2.2vw,19px);max-width:620px;margin:0 auto 22px}
+  .chip{display:inline-block;background:rgba(0,184,90,.14);border:1px solid rgba(52,199,123,.35);color:#7BE0A9;border-radius:999px;padding:5px 14px;font-size:14px;font-weight:600}
+  .acciones{display:flex;flex-wrap:wrap;gap:12px;justify-content:center;margin-top:28px}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;min-height:52px;padding:0 26px;border-radius:999px;font-weight:700;font-size:16px;
+       text-decoration:none;white-space:nowrap;border:1px solid var(--borde);background:rgba(255,255,255,.08);color:var(--texto);cursor:pointer;transition:transform .15s,background .15s}
+  .btn:hover{background:rgba(255,255,255,.14);transform:translateY(-1px)}
+  .btn.principal{background:var(--verde);border-color:var(--verde);color:#04130A;box-shadow:0 10px 30px rgba(0,184,90,.28)}
+  .btn.principal:hover{background:#1FCB72}
+  .btn svg{width:20px;height:20px}
+  .btn .peso{font-weight:500;opacity:.7;font-size:13px}
   .btn[hidden]{display:none}
-  .peso{font-weight:400;opacity:.75;font-size:13px}
-  ol{margin:14px 0 0;padding-left:22px;color:var(--texto2)}
-  ol li{margin:6px 0}
-  b,strong{color:var(--texto)}
-  details{margin-top:14px;border-top:1px solid var(--separador);padding-top:12px}
-  summary{cursor:pointer;font-weight:600;color:var(--acento-texto)}
-  .novedades{margin-top:16px}
-  .novedades ul{margin:10px 0 0;padding-left:20px;color:var(--texto2)}
-  .nota{font-size:13px;color:var(--texto2);text-align:center;margin-top:30px}
-  #toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--texto);color:var(--fondo);padding:10px 18px;border-radius:999px;font-size:14px;opacity:0;transition:opacity .2s;pointer-events:none}
+  .mini{font-size:14px;color:var(--texto2);margin-top:12px}
+  .mini a{color:#7BE0A9}
+  section.bloque{background:var(--tarjeta);border:1px solid var(--borde);border-radius:28px;padding:clamp(20px,4vw,36px);margin-top:28px;
+                  -webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px)}
+  .cab{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:22px}
+  .cab .ico{width:46px;height:46px;border-radius:14px;background:rgba(0,184,90,.15);display:grid;place-items:center;flex:none}
+  .cab .ico svg{width:26px;height:26px;color:var(--verde2)}
+  .cab h2{margin:0;font-size:clamp(22px,3.4vw,30px);letter-spacing:-.015em}
+  .cab p{margin:2px 0 0;color:var(--texto2)}
+  .cab .btn{margin-left:auto}
+  .video{width:100%;border-radius:18px;border:1px solid var(--borde);background:#000;display:block;aspect-ratio:16/9;margin-bottom:26px}
+  ol.pasos{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
+  @media (max-width:760px){ol.pasos{grid-template-columns:1fr}}
+  .paso{background:rgba(255,255,255,.04);border:1px solid var(--borde);border-radius:22px;overflow:hidden}
+  .lienzo{background:radial-gradient(ellipse at 50% 30%,rgba(29,74,54,.55),rgba(7,16,13,.6));border-bottom:1px solid var(--borde)}
+  .ilus{display:block;width:100%;height:auto}
+  .txt{display:flex;gap:14px;padding:18px 20px 20px}
+  .num{flex:none;width:32px;height:32px;border-radius:50%;background:var(--verde);color:#04130A;font-weight:800;display:grid;place-items:center;font-size:15px}
+  .txt h3{margin:3px 0 4px;font-size:18px}
+  .txt p{margin:0;color:var(--texto2);font-size:15px}
+  .txt b{color:var(--texto);font-weight:650}
+  .nota{margin:20px 2px 0;color:var(--texto2);font-size:14.5px}
+  .nota b{color:var(--texto)}
+  details{margin-top:12px;border-top:1px solid var(--borde);padding-top:12px}
+  summary{cursor:pointer;font-weight:650;color:#7BE0A9}
+  #novedades ul{margin:0;padding-left:20px;color:var(--texto2)}
+  footer{text-align:center;color:var(--texto2);font-size:13px;margin-top:36px}
+  #toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#fff;color:#07100D;padding:10px 18px;border-radius:999px;font-size:14px;font-weight:600;opacity:0;transition:opacity .2s;pointer-events:none}
   #toast.on{opacity:1}
+  
+.vivo .pulso{transform-box:fill-box;transform-origin:center;animation:pulso 1.8s ease-out infinite}
+@keyframes pulso{0%{opacity:.95;transform:scale(.92)}70%{opacity:0;transform:scale(1.25)}100%{opacity:0}}
+.vivo .flujo{animation:flujo 1s linear infinite}@keyframes flujo{to{stroke-dashoffset:-22}}
+.vivo .arrastre{animation:arrastre 3.2s ease-in-out infinite}
+@keyframes arrastre{0%,12%{transform:translate(0,0);opacity:0}18%{opacity:1}62%,78%{transform:translate(148px,0);opacity:1}92%,100%{transform:translate(148px,0);opacity:0}}
+.vivo .cursor-boton{animation:clic 2.4s ease-in-out infinite}
+@keyframes clic{0%{transform:translate(30px,26px)}45%,60%{transform:translate(0,0) scale(1)}52%{transform:translate(0,0) scale(.85)}100%{transform:translate(0,0)}}
+.vivo .barra-llena{transform-box:fill-box;transform-origin:left;animation:llena 3.4s ease-in-out infinite}
+@keyframes llena{0%{transform:scaleX(0)}80%,100%{transform:scaleX(1)}}
+.vivo .sube{animation:sube 3s ease-out infinite}@keyframes sube{0%{transform:translateY(140px)}25%,100%{transform:translateY(0)}}
+.vivo .aparece{animation:aparece 3s ease-out infinite}@keyframes aparece{0%,10%{transform:scale(0);opacity:0}35%{transform:scale(1.15);opacity:1}45%,100%{transform:scale(1)}}
+@media (prefers-reduced-motion:reduce){.vivo *{animation:none!important}}
+
 </style>
 </head>
 <body>
 <main>
-  <header>
-    <img class="logo-claro" src="app/assets/logo_filmflow_claro.png" alt="FilmFlow">
-    <img class="logo-oscuro" src="app/assets/logo_filmflow_oscuro.png" alt="FilmFlow">
-    <h1>Estadístico FilmFlow</h1>
-    <p class="sub">Lee los reportes de Silverstack y llena el estatus de tarjetas y el estadístico de tu proyecto.</p>
+  <header class="hero">
+    <img class="logo" src="app/assets/logo_filmflow_grande.png" alt="FilmFlow">
+    <h1>Estadístico <span>FilmFlow</span></h1>
+    <p class="lead">Lee los reportes de Silverstack y llena el estatus de tarjetas y el estadístico de tu proyecto, en el Mac y en el celular.</p>
     <span class="chip" id="version">Última versión</span>
+    <div class="acciones">
+      <a class="btn principal" id="mac" href="https://github.com/FilmFlowEstadistico/filmflowestadistico.github.io/releases/latest/download/Estadistico_FilmFlow.dmg" title="Bajar el instalador para Mac con chip Apple (M1, M2, M3, M4…).">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>Descargar para Mac <span class="peso" id="peso-mac"></span></a>
+      <a class="btn" href="app/index.html" title="Abrir la app del celular en este navegador (para instalarla en el iPhone sigue los pasos de abajo).">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="7" y="3" width="10" height="18" rx="2.5"/><path d="M11 18h2"/></svg>Abrir en el celular</a>
+    </div>
+    <p class="mini"><span id="intel">¿Mac con procesador Intel? <a id="mac-intel" href="https://github.com/FilmFlowEstadistico/filmflowestadistico.github.io/releases/latest/download/Estadistico_FilmFlow_Intel.dmg" title="Bajar el instalador para Mac con procesador Intel (Mac de 2020 o antes).">Descarga esta versión</a> · </span><a href="#" id="compartir" title="Mandar este enlace a otro data manager (WhatsApp, correo…).">Compartir enlace</a>
+      · <a href="guia/guia_instalacion.pdf" target="_blank" title="Abrir la guía de instalación ilustrada en PDF (para imprimir o enviar).">Guía en PDF</a></p>
   </header>
 
-  <div class="grid">
-    <section class="tarjeta">
-      <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>Para tu Mac</h2>
-      <p class="sub">Se instala una vez. Después la app te avisa sola cuando hay una versión nueva y se actualiza con un clic.</p>
-      <div class="botones">
-        <a class="btn principal" id="mac" href="#" title="Bajar el instalador para Mac con chip Apple (M1, M2, M3, M4…).">Descargar para Mac <span class="peso" id="peso-mac"></span></a>
-        <a class="btn" id="mac-intel" href="#" hidden title="Bajar el instalador para Mac con procesador Intel (Mac de 2020 o antes).">Mac con Intel <span class="peso" id="peso-intel"></span></a>
-      </div>
-      <ol>
-        <li>Abre el archivo descargado y arrastra <b>Estadistico FilmFlow</b> a <b>Aplicaciones</b>.</li>
-        <li>Ábrela. La primera vez el Mac dice que no puede comprobar la app (no está en la App Store): ve a
-          <b>Configuración del Sistema → Privacidad y seguridad</b>, baja hasta el final y pulsa <b>«Abrir igualmente»</b>. Solo se hace una vez.</li>
-        <li>Pulsa <b>«Iniciar sesión con Google»</b>: tus proyectos llegan solos.</li>
-      </ol>
-      <details>
-        <summary>¿Mi Mac es «chip Apple» o «Intel»?</summary>
-        <p class="sub">Menú  → <b>Acerca de este Mac</b>. Si dice <b>Chip: Apple M…</b> usa el botón verde. Si dice <b>Procesador: Intel</b> usa «Mac con Intel».</p>
-      </details>
-    </section>
-
-    <section class="tarjeta">
-      <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M10.5 18.5h3"/></svg>Para tu celular</h2>
-      <p class="sub">No se descarga de ninguna tienda: se abre en el navegador y queda como una app en tu pantalla. Se actualiza sola.</p>
-      <div class="botones">
-        <a class="btn principal" href="app/index.html" title="Abrir la app del celular en este navegador.">Abrir la app</a>
-        <button class="btn" id="compartir" type="button" title="Mandar este enlace a otro data manager (WhatsApp, correo…).">Compartir enlace</button>
-      </div>
-      <ol>
-        <li><b>iPhone:</b> abre «Abrir la app» en <b>Safari</b>, toca <b>Compartir</b> (el cuadrito con la flecha) → <b>«Agregar a inicio»</b>.</li>
-        <li><b>Android:</b> en <b>Chrome</b>, toca el menú <b>⋮</b> → <b>«Instalar app»</b> (o «Agregar a la pantalla principal»).</li>
-        <li>Ábrela desde el ícono de FilmFlow e inicia sesión con tu cuenta de Google.</li>
-      </ol>
-    </section>
-  </div>
-
-  <section class="tarjeta novedades" id="caja-novedades" hidden>
-    <h2>Novedades de esta versión</h2>
-    <ul id="novedades"></ul>
+  <section class="bloque" id="instalar-mac">
+    <div class="cab"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></div>
+      <div><h2>Instalar en tu Mac</h2><p>Una sola vez. Después se actualiza con un clic.</p></div></div>
+    <video class="video" src="guia/mac.mp4" poster="guia/mac.jpg" controls playsinline muted preload="none" title="Video: cómo instalar en el Mac"></video>
+    <ol class="pasos"><li class="paso"><div class="lienzo"><svg class="ilus vivo" viewBox="0 0 360 240" role="img" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system,BlinkMacSystemFont,Helvetica Neue,Arial,sans-serif"><defs><radialGradient id="fondoApp" cx="50%" cy="25%" r="80%"><stop offset="0" stop-color="#1D4A36"/><stop offset="1" stop-color="#07100D"/></radialGradient><linearGradient id="cielo" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2B5876" stop-opacity=".2"/><stop offset="1" stop-color="#4E4376" stop-opacity=".9"/></linearGradient></defs><g><rect x="30" y="36" width="300" height="168" rx="10" fill="#1E2321" stroke="#3A413E"/><rect x="30" y="36" width="300" height="22" rx="10" fill="#2A302D"/><rect x="30" y="48" width="300" height="10" fill="#2A302D"/><circle cx="43" cy="47" r="4" fill="#FF5F57"/><circle cx="56" cy="47" r="4" fill="#FEBC2E"/><circle cx="69" cy="47" r="4" fill="#28C840"/><text x="180.0" y="51" fill="#C9D3CE" font-size="9" text-anchor="middle" font-weight="600">Estadistico FilmFlow</text><image href="app/assets/icono-180.png" x="74" y="76" width="64" height="64"/><text x="106" y="156" fill="#E8EEEB" font-size="9" text-anchor="middle">Estadistico FilmFlow</text><g transform="translate(222,78)"><path d="M0 8 Q0 2 6 2 H22 L28 9 H58 Q64 9 64 15 V52 Q64 58 58 58 H6 Q0 58 0 52 Z" fill="#3B9BF5"/><path d="M0 18 H64 V52 Q64 58 58 58 H6 Q0 58 0 52 Z" fill="#5CB0FF"/><path d="M22 30 l10 -8 l10 8 M32 22 v20 M24 44 h16" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round"/></g><text x="254" y="156" fill="#E8EEEB" font-size="9" text-anchor="middle">Applications</text><path d="M150 108 H210" stroke="#34C77B" stroke-width="3" stroke-dasharray="6 5" fill="none" class="flujo"/><path d="M206 100 L216 108 L206 116" stroke="#34C77B" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/><g class="arrastre"><image href="app/assets/icono-180.png" x="74" y="76" width="64" height="64" opacity=".55"/><g transform="translate(112,112)"><g class=""><path d="M0 0 L0 15 L4 11 L7 18 L10 17 L7 10 L12 10 Z" fill="#fff" stroke="#111" stroke-width="1.2" stroke-linejoin="round"/></g></g></g></g></svg></div><div class="txt"><span class="num">1</span><div><h3>Descarga e instala</h3><p>Abre el archivo descargado <b>Estadistico_FilmFlow.dmg</b> y arrastra el ícono de la app a la carpeta <b>Aplicaciones</b>.</p></div></div></li><li class="paso"><div class="lienzo"><svg class="ilus vivo" viewBox="0 0 360 240" role="img" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system,BlinkMacSystemFont,Helvetica Neue,Arial,sans-serif"><defs><radialGradient id="fondoApp" cx="50%" cy="25%" r="80%"><stop offset="0" stop-color="#1D4A36"/><stop offset="1" stop-color="#07100D"/></radialGradient><linearGradient id="cielo" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2B5876" stop-opacity=".2"/><stop offset="1" stop-color="#4E4376" stop-opacity=".9"/></linearGradient></defs><g><rect x="30" y="36" width="300" height="168" rx="10" fill="#1E2321" stroke="#3A413E"/><rect x="30" y="36" width="300" height="22" rx="10" fill="#2A302D"/><rect x="30" y="48" width="300" height="10" fill="#2A302D"/><circle cx="43" cy="47" r="4" fill="#FF5F57"/><circle cx="56" cy="47" r="4" fill="#FEBC2E"/><circle cx="69" cy="47" r="4" fill="#28C840"/><text x="180.0" y="51" fill="#C9D3CE" font-size="9" text-anchor="middle" font-weight="600">Configuración del Sistema</text><rect x="31" y="58" width="104" height="145" fill="#252A28"/><text x="48" y="78" fill="#AEB8B3" font-size="8.5">Wi‑Fi</text><text x="48" y="96" fill="#AEB8B3" font-size="8.5">General</text><text x="48" y="114" fill="#AEB8B3" font-size="8.5"></text><text x="48" y="132" fill="#AEB8B3" font-size="8.5">Escritorio</text><text x="48" y="150" fill="#AEB8B3" font-size="8.5">Pantallas</text><rect x="37" y="104" width="94" height="16" rx="5" fill="#2F7DE1"/><text x="42" y="115" fill="#fff" font-size="7" font-weight="600">Privacidad y seguridad</text><text x="146" y="80" fill="#F2F4F3" font-size="11" font-weight="700">Privacidad y seguridad</text><rect x="146" y="90" width="164" height="6" rx="3" fill="#333A37"/><rect x="146" y="102" width="124" height="6" rx="3" fill="#333A37"/><rect x="144" y="118" width="176" height="70" rx="8" fill="#2A302D"/><text x="152" y="134" fill="#E8EEEB" font-size="8">Se bloqueó «Estadistico FilmFlow»</text><text x="152" y="145" fill="#AEB8B3" font-size="7">porque no es de un desarrollador identificado.</text><rect x="232" y="156" width="76" height="22" rx="11" fill="#3A403D"/><text x="270" y="171" fill="#fff" font-size="8.4" font-weight="700" text-anchor="middle">Abrir igualmente</text><ellipse class="pulso" cx="270" cy="167" rx="44" ry="16" fill="none" stroke="#34C77B" stroke-width="2.5"/><g transform="translate(286,174)"><g class="cursor-boton"><path d="M0 0 L0 15 L4 11 L7 18 L10 17 L7 10 L12 10 Z" fill="#fff" stroke="#111" stroke-width="1.2" stroke-linejoin="round"/></g></g></g></svg></div><div class="txt"><span class="num">2</span><div><h3>Permite abrirla (solo la primera vez)</h3><p>Abre la app. Si el Mac la bloquea, ve a <b>Configuración del Sistema → Privacidad y seguridad</b> y pulsa <b>«Abrir igualmente»</b>.</p></div></div></li><li class="paso"><div class="lienzo"><svg class="ilus vivo" viewBox="0 0 360 240" role="img" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system,BlinkMacSystemFont,Helvetica Neue,Arial,sans-serif"><defs><radialGradient id="fondoApp" cx="50%" cy="25%" r="80%"><stop offset="0" stop-color="#1D4A36"/><stop offset="1" stop-color="#07100D"/></radialGradient><linearGradient id="cielo" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2B5876" stop-opacity=".2"/><stop offset="1" stop-color="#4E4376" stop-opacity=".9"/></linearGradient></defs><g><rect x="30" y="36" width="300" height="168" rx="10" fill="#0B1511" stroke="#3A413E"/><rect x="30" y="36" width="300" height="22" rx="10" fill="#2A302D"/><rect x="30" y="48" width="300" height="10" fill="#2A302D"/><circle cx="43" cy="47" r="4" fill="#FF5F57"/><circle cx="56" cy="47" r="4" fill="#FEBC2E"/><circle cx="69" cy="47" r="4" fill="#28C840"/><text x="180.0" y="51" fill="#C9D3CE" font-size="9" text-anchor="middle" font-weight="600">Estadístico FilmFlow</text><rect x="31" y="58" width="298" height="145" fill="url(#fondoApp)"/><image href="app/assets/logo_filmflow_grande.png" x="140" y="70" width="80" height="48"/><text x="180" y="134" fill="#fff" font-size="12" font-weight="800" text-anchor="middle">Tus estadísticos, <tspan fill="#34C77B">en un solo lugar.</tspan></text><rect x="104" y="150" width="152" height="26" rx="13" fill="#fff"/><g transform="translate(114,157)"><circle cx="6" cy="6" r="6" fill="#4285F4"/><path d="M6 6 h6 a6 6 0 0 1 -6 6 z" fill="#34A853"/><path d="M0 6 a6 6 0 0 1 6 -6 v6 z" fill="#EA4335"/><path d="M0 6 a6 6 0 0 0 6 6 v-6 z" fill="#FBBC05"/><circle cx="6" cy="6" r="2.6" fill="#fff"/></g><text x="187" y="167" fill="#1D2421" font-size="8.4" font-weight="700" text-anchor="middle">Iniciar sesión con Google</text><ellipse class="pulso" cx="180" cy="163" rx="82" ry="17" fill="none" stroke="#34C77B" stroke-width="2.5"/><g transform="translate(226,170)"><g class="cursor-boton"><path d="M0 0 L0 15 L4 11 L7 18 L10 17 L7 10 L12 10 Z" fill="#fff" stroke="#111" stroke-width="1.2" stroke-linejoin="round"/></g></g></g></svg></div><div class="txt"><span class="num">3</span><div><h3>Inicia sesión</h3><p>Pulsa <b>«Iniciar sesión con Google»</b> con tu cuenta de trabajo. Tus proyectos llegan solos.</p></div></div></li><li class="paso"><div class="lienzo"><svg class="ilus vivo" viewBox="0 0 360 240" role="img" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system,BlinkMacSystemFont,Helvetica Neue,Arial,sans-serif"><defs><radialGradient id="fondoApp" cx="50%" cy="25%" r="80%"><stop offset="0" stop-color="#1D4A36"/><stop offset="1" stop-color="#07100D"/></radialGradient><linearGradient id="cielo" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2B5876" stop-opacity=".2"/><stop offset="1" stop-color="#4E4376" stop-opacity=".9"/></linearGradient></defs><g><rect x="30" y="36" width="300" height="168" rx="10" fill="#1E2321" stroke="#3A413E"/><rect x="30" y="36" width="300" height="22" rx="10" fill="#2A302D"/><rect x="30" y="48" width="300" height="10" fill="#2A302D"/><circle cx="43" cy="47" r="4" fill="#FF5F57"/><circle cx="56" cy="47" r="4" fill="#FEBC2E"/><circle cx="69" cy="47" r="4" fill="#28C840"/><text x="180.0" y="51" fill="#C9D3CE" font-size="9" text-anchor="middle" font-weight="600">Estadístico FilmFlow</text><rect x="31" y="58" width="298" height="145" fill="#171918"/><rect x="44" y="70" width="90" height="10" rx="5" fill="#2A302D"/><rect x="44" y="88" width="272" height="40" rx="10" fill="#202523"/><rect x="44" y="136" width="130" height="56" rx="10" fill="#202523"/><rect x="186" y="136" width="130" height="56" rx="10" fill="#202523"/><rect x="60" y="78" width="240" height="112" rx="14" fill="#262B29" stroke="#3A413E"/><circle cx="80" cy="98" r="9" fill="#00B85A"/><path d="M80 93 v8 M76 98 l4 4 4 -4" stroke="#06140B" stroke-width="2" fill="none" stroke-linecap="round"/><text x="96" y="101" fill="#F2F4F3" font-size="10" font-weight="700">Hay una versión nueva de la app</text><text x="96" y="115" fill="#A9B1AC" font-size="7.6">Tienes la 1.1.0 y ya está la 1.2.0.</text><text x="96" y="126" fill="#A9B1AC" font-size="7.6">Se cierra y se vuelve a abrir sola.</text><rect x="96" y="136" width="186" height="5" rx="2.5" fill="#3A413E"/><rect class="barra-llena" x="96" y="136" width="186" height="5" rx="2.5" fill="#00B85A"/><rect x="132" y="156" width="64" height="22" rx="11" fill="#3A403D"/><text x="164" y="170" fill="#fff" font-size="8.4" text-anchor="middle">Más tarde</text><rect x="204" y="156" width="80" height="22" rx="11" fill="#00B85A"/><text x="244" y="170" fill="#06140B" font-size="8.4" font-weight="700" text-anchor="middle">Actualizar ahora</text><ellipse class="pulso" cx="244" cy="167" rx="46" ry="16" fill="none" stroke="#34C77B" stroke-width="2.5"/><g transform="translate(262,174)"><g class="cursor-boton"><path d="M0 0 L0 15 L4 11 L7 18 L10 17 L7 10 L12 10 Z" fill="#fff" stroke="#111" stroke-width="1.2" stroke-linejoin="round"/></g></g></g></svg></div><div class="txt"><span class="num">4</span><div><h3>Se actualiza sola</h3><p>Cuando haya una versión nueva, la app te avisa. Pulsa <b>«Actualizar ahora»</b> y se vuelve a abrir en segundos.</p></div></div></li></ol>
+    <details><summary>¿Mi Mac es «chip Apple» o «Intel»?</summary>
+      <p class="nota">Menú  → <b>Acerca de este Mac</b>. Si dice <b>Chip: Apple M…</b> usa el botón verde. Si dice <b>Procesador: Intel</b> usa «Mac con procesador Intel».</p></details>
   </section>
 
-  <p class="nota">Uso interno de FilmFlow. El Mac y el celular comparten tus proyectos a través de tu cuenta de Google
-    (hoja «FILMFLOW_CONFIG (no borrar)»).</p>
+  <section class="bloque" id="instalar-celular">
+    <div class="cab"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M10.5 18.5h3"/></svg></div>
+      <div><h2>Usar en tu iPhone o iPad</h2><p>No se descarga de ninguna tienda: queda como una app en tu pantalla y se actualiza sola.</p></div></div>
+    <video class="video" src="guia/celular.mp4" poster="guia/celular.jpg" controls playsinline muted preload="none" title="Video: cómo instalar en el celular"></video>
+    <ol class="pasos"><li class="paso"><div class="lienzo"><svg class="ilus vivo" viewBox="0 0 360 240" role="img" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system,BlinkMacSystemFont,Helvetica Neue,Arial,sans-serif"><defs><radialGradient id="fondoApp" cx="50%" cy="25%" r="80%"><stop offset="0" stop-color="#1D4A36"/><stop offset="1" stop-color="#07100D"/></radialGradient><linearGradient id="cielo" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2B5876" stop-opacity=".2"/><stop offset="1" stop-color="#4E4376" stop-opacity=".9"/></linearGradient></defs><g transform="translate(120,8)"><rect x="0" y="0" width="120" height="224" rx="20" fill="#0E1110" stroke="#4A524E" stroke-width="2"/><rect x="6" y="6" width="108" height="212" rx="15" fill="#171918"/><rect x="44" y="11" width="32" height="8" rx="4" fill="#000"/><clipPath id="pant1208"><rect x="6" y="6" width="108" height="212" rx="15"/></clipPath><g clip-path="url(#pant1208)"><rect x="6" y="6" width="108" height="212" fill="url(#fondoApp)"/><image href="app/assets/logo_filmflow_grande.png" x="38" y="36" width="44" height="26"/><text x="60" y="78" fill="#fff" font-size="8" font-weight="800" text-anchor="middle">Estadístico FilmFlow</text><rect x="18" y="88" width="84" height="40" rx="8" fill="rgba(255,255,255,.06)"/><rect x="28" y="98" width="64" height="16" rx="8" fill="#00B85A"/><text x="60" y="109" fill="#06140B" font-size="6.6" font-weight="700" text-anchor="middle">Abrir la app</text><rect x="18" y="136" width="84" height="40" rx="8" fill="rgba(255,255,255,.06)"/><rect x="6" y="184" width="108" height="34" fill="#232826"/><rect x="14" y="170" width="92" height="12" rx="6" fill="#2E3431"/><text x="60" y="179" fill="#C9D3CE" font-size="5.6" text-anchor="middle">filmflowestadistico.github.io</text><g stroke="#8FA39A" stroke-width="1.6" fill="none" stroke-linecap="round"><path d="M20 200 l-4 -4 4 -4"/><path d="M36 192 l4 4 -4 4"/><rect x="80" y="193" width="9" height="9" rx="2"/><rect x="96" y="194" width="8" height="8" rx="1.5"/></g><g stroke="#4FA3FF" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M55 197 v9 h10 v-9"/><path d="M60 201 v-11 M56.5 193 l3.5 -3.5 3.5 3.5"/></g><ellipse class="pulso" cx="60" cy="198" rx="12" ry="12" fill="none" stroke="#34C77B" stroke-width="2.5"/><g transform="translate(64,203)"><g class="cursor-boton"><path d="M0 0 L0 15 L4 11 L7 18 L10 17 L7 10 L12 10 Z" fill="#fff" stroke="#111" stroke-width="1.2" stroke-linejoin="round"/></g></g></g></g><text x="270" y="110" fill="#9FB5AA" font-size="10" font-weight="600">Toca</text><text x="270" y="124" fill="#fff" font-size="11" font-weight="800">Compartir</text><path d="M266 132 C246 160 220 190 196 204" stroke="#34C77B" stroke-width="2" fill="none" stroke-dasharray="4 4" class="flujo"/></svg></div><div class="txt"><span class="num">1</span><div><h3>Abre el enlace en Safari</h3><p>En tu iPhone abre <b>filmflowestadistico.github.io</b> en <b>Safari</b>, toca <b>«Abrir la app»</b> y luego el botón <b>Compartir</b>.</p></div></div></li><li class="paso"><div class="lienzo"><svg class="ilus vivo" viewBox="0 0 360 240" role="img" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system,BlinkMacSystemFont,Helvetica Neue,Arial,sans-serif"><defs><radialGradient id="fondoApp" cx="50%" cy="25%" r="80%"><stop offset="0" stop-color="#1D4A36"/><stop offset="1" stop-color="#07100D"/></radialGradient><linearGradient id="cielo" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2B5876" stop-opacity=".2"/><stop offset="1" stop-color="#4E4376" stop-opacity=".9"/></linearGradient></defs><g transform="translate(120,8)"><rect x="0" y="0" width="120" height="224" rx="20" fill="#0E1110" stroke="#4A524E" stroke-width="2"/><rect x="6" y="6" width="108" height="212" rx="15" fill="#171918"/><rect x="44" y="11" width="32" height="8" rx="4" fill="#000"/><clipPath id="pant1208"><rect x="6" y="6" width="108" height="212" rx="15"/></clipPath><g clip-path="url(#pant1208)"><rect x="6" y="6" width="108" height="212" fill="url(#fondoApp)" opacity=".5"/><rect x="6" y="6" width="108" height="212" fill="rgba(0,0,0,.45)"/><g class="sube"><rect x="6" y="84" width="108" height="140" rx="14" fill="#1E2321"/><image href="app/assets/icono-180.png" x="14" y="90" width="14" height="14"/><text x="32" y="100" fill="#fff" font-size="6.6" font-weight="700">FilmFlow</text><rect x="12" y="108" width="96" height="20" rx="6" fill="#2A302D"/><text x="20" y="121" fill="#C9D3CE" font-size="6.8" font-weight="500">Copiar</text><rect x="12" y="130" width="96" height="20" rx="6" fill="#2A302D"/><text x="20" y="143" fill="#C9D3CE" font-size="6.8" font-weight="500">Agregar a favoritos</text><rect x="12" y="152" width="96" height="20" rx="6" fill="#1F4A33"/><text x="20" y="165" fill="#fff" font-size="6.8" font-weight="700">Agregar a inicio</text><rect x="92" y="156" width="11" height="11" rx="2.5" stroke="#fff" stroke-width="1.3" fill="none"/><path d="M97.5 158.5 v6 M94.5 161.5 h6" stroke="#fff" stroke-width="1.3"/><rect x="12" y="174" width="96" height="20" rx="6" fill="#2A302D"/><text x="20" y="187" fill="#C9D3CE" font-size="6.8" font-weight="500">Buscar en la página</text></g><ellipse class="pulso" cx="60" cy="162" rx="52" ry="13" fill="none" stroke="#34C77B" stroke-width="2.5"/><g transform="translate(84,166)"><g class="cursor-boton"><path d="M0 0 L0 15 L4 11 L7 18 L10 17 L7 10 L12 10 Z" fill="#fff" stroke="#111" stroke-width="1.2" stroke-linejoin="round"/></g></g></g></g><text x="262" y="110" fill="#9FB5AA" font-size="10" font-weight="600">Toca</text><text x="262" y="124" fill="#fff" font-size="11" font-weight="800">Agregar</text><text x="262" y="138" fill="#fff" font-size="11" font-weight="800">a inicio</text></svg></div><div class="txt"><span class="num">2</span><div><h3>Agrégala a tu inicio</h3><p>En el menú que aparece, toca <b>«Agregar a inicio»</b> y después <b>«Agregar»</b>.</p></div></div></li><li class="paso"><div class="lienzo"><svg class="ilus vivo" viewBox="0 0 360 240" role="img" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system,BlinkMacSystemFont,Helvetica Neue,Arial,sans-serif"><defs><radialGradient id="fondoApp" cx="50%" cy="25%" r="80%"><stop offset="0" stop-color="#1D4A36"/><stop offset="1" stop-color="#07100D"/></radialGradient><linearGradient id="cielo" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2B5876" stop-opacity=".2"/><stop offset="1" stop-color="#4E4376" stop-opacity=".9"/></linearGradient></defs><g transform="translate(120,8)"><rect x="0" y="0" width="120" height="224" rx="20" fill="#0E1110" stroke="#4A524E" stroke-width="2"/><rect x="6" y="6" width="108" height="212" rx="15" fill="#171918"/><rect x="44" y="11" width="32" height="8" rx="4" fill="#000"/><clipPath id="pant1208"><rect x="6" y="6" width="108" height="212" rx="15"/></clipPath><g clip-path="url(#pant1208)"><rect x="6" y="6" width="108" height="212" fill="#1B3B5A"/><rect x="6" y="6" width="108" height="212" fill="url(#cielo)"/><rect x="16" y="30" width="18" height="18" rx="5" fill="#3B6EA8" opacity=".85"/><rect x="40" y="30" width="18" height="18" rx="5" fill="#C0563E" opacity=".85"/><rect x="64" y="30" width="18" height="18" rx="5" fill="#D9A23A" opacity=".85"/><rect x="88" y="30" width="18" height="18" rx="5" fill="#5A8F5A" opacity=".85"/><rect x="16" y="60" width="18" height="18" rx="5" fill="#7A5AA8" opacity=".85"/><rect x="40" y="60" width="18" height="18" rx="5" fill="#3A8E99" opacity=".85"/><rect x="64" y="60" width="18" height="18" rx="5" fill="#9A9A9A" opacity=".85"/><rect x="88" y="60" width="18" height="18" rx="5" fill="#B5486E" opacity=".85"/><rect x="16" y="90" width="18" height="18" rx="5" fill="#4F7FD9" opacity=".85"/><g class="aparece" style="transform-origin:49px 99px"><image href="app/assets/icono-180.png" x="40" y="90" width="18" height="18"/><text x="49" y="115" fill="#fff" font-size="4.6" text-anchor="middle">FilmFlow</text></g><rect x="64" y="90" width="18" height="18" rx="5" fill="#6B6B6B" opacity=".85"/><rect x="88" y="90" width="18" height="18" rx="5" fill="#C77C2F" opacity=".85"/><rect x="16" y="120" width="18" height="18" rx="5" fill="#3B6EA8" opacity=".85"/><rect x="40" y="120" width="18" height="18" rx="5" fill="#C0563E" opacity=".85"/><rect x="64" y="120" width="18" height="18" rx="5" fill="#D9A23A" opacity=".85"/><rect x="88" y="120" width="18" height="18" rx="5" fill="#5A8F5A" opacity=".85"/><rect x="14" y="190" width="92" height="22" rx="10" fill="rgba(255,255,255,.18)"/><ellipse class="pulso" cx="49" cy="99" rx="13" ry="13" fill="none" stroke="#34C77B" stroke-width="2.5"/><g transform="translate(52,103)"><g class="cursor-boton"><path d="M0 0 L0 15 L4 11 L7 18 L10 17 L7 10 L12 10 Z" fill="#fff" stroke="#111" stroke-width="1.2" stroke-linejoin="round"/></g></g></g></g><text x="262" y="110" fill="#9FB5AA" font-size="10" font-weight="600">Ábrela desde</text><text x="262" y="124" fill="#fff" font-size="11" font-weight="800">el ícono</text></svg></div><div class="txt"><span class="num">3</span><div><h3>Ábrela desde el ícono</h3><p>El ícono de FilmFlow queda en tu pantalla de inicio. Ábrela siempre desde ahí, como cualquier app.</p></div></div></li><li class="paso"><div class="lienzo"><svg class="ilus vivo" viewBox="0 0 360 240" role="img" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system,BlinkMacSystemFont,Helvetica Neue,Arial,sans-serif"><defs><radialGradient id="fondoApp" cx="50%" cy="25%" r="80%"><stop offset="0" stop-color="#1D4A36"/><stop offset="1" stop-color="#07100D"/></radialGradient><linearGradient id="cielo" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2B5876" stop-opacity=".2"/><stop offset="1" stop-color="#4E4376" stop-opacity=".9"/></linearGradient></defs><g transform="translate(120,8)"><rect x="0" y="0" width="120" height="224" rx="20" fill="#0E1110" stroke="#4A524E" stroke-width="2"/><rect x="6" y="6" width="108" height="212" rx="15" fill="#171918"/><rect x="44" y="11" width="32" height="8" rx="4" fill="#000"/><clipPath id="pant1208"><rect x="6" y="6" width="108" height="212" rx="15"/></clipPath><g clip-path="url(#pant1208)"><rect x="6" y="6" width="108" height="212" fill="url(#fondoApp)"/><image href="app/assets/logo_filmflow_grande.png" x="30" y="44" width="60" height="36"/><text x="60" y="98" fill="#fff" font-size="8.2" font-weight="800" text-anchor="middle">Tus estadísticos,</text><text x="60" y="109" fill="#34C77B" font-size="8.2" font-weight="800" text-anchor="middle">en un solo lugar.</text><rect x="12" y="128" width="96" height="20" rx="10" fill="#fff"/><text x="64" y="140.5" fill="#1D2421" font-size="5.8" font-weight="700" text-anchor="middle">Iniciar sesión con Google</text><circle cx="21" cy="138" r="3.6" fill="#4285F4"/><ellipse class="pulso" cx="60" cy="138" rx="52" ry="13" fill="none" stroke="#34C77B" stroke-width="2.5"/><g transform="translate(82,142)"><g class="cursor-boton"><path d="M0 0 L0 15 L4 11 L7 18 L10 17 L7 10 L12 10 Z" fill="#fff" stroke="#111" stroke-width="1.2" stroke-linejoin="round"/></g></g></g></g><text x="262" y="110" fill="#9FB5AA" font-size="10" font-weight="600">Entra con</text><text x="262" y="124" fill="#fff" font-size="11" font-weight="800">tu cuenta</text><text x="262" y="138" fill="#fff" font-size="11" font-weight="800">de Google</text></svg></div><div class="txt"><span class="num">4</span><div><h3>Inicia sesión</h3><p>Entra con tu cuenta de Google. Se actualiza sola cada vez que publicamos una versión nueva.</p></div></div></li></ol>
+    <p class="nota"><b>Android:</b> abre el enlace en <b>Chrome</b>, toca el menú <b>⋮</b> → <b>«Instalar app»</b> (o «Agregar a la pantalla principal») y sigue desde el paso 3.</p>
+  </section>
+
+  <section class="bloque" id="novedades" hidden>
+    <div class="cab"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 3l2.6 5.6L20 9.3l-4 4 1 5.7-5-2.8-5 2.8 1-5.7-4-4 5.4-.7z"/></svg></div>
+      <div><h2>Novedades de esta versión</h2></div></div>
+    <ul id="lista-novedades"></ul>
+  </section>
+
+  <footer>Uso interno de FilmFlow · El Mac y el celular comparten tus proyectos a través de tu cuenta de Google (hoja «FILMFLOW_CONFIG (no borrar)»).</footer>
 </main>
 <div id="toast"></div>
 <script>
-  const REPO = "https://github.com/filmflowtv/FilmFlow-descargas/releases/latest/download/";
   const mb = (b) => b ? `· ${Math.round(b / 1e6)} MB` : "";
   const toast = (t) => { const e = document.getElementById("toast"); e.textContent = t; e.classList.add("on"); setTimeout(() => e.classList.remove("on"), 3000); };
-  document.getElementById("mac").href = REPO + "Estadistico_FilmFlow.dmg";
-  document.getElementById("mac-intel").href = REPO + "Estadistico_FilmFlow_Intel.dmg";
   fetch("version.json?t=" + Date.now(), { cache: "no-store" }).then((r) => r.json()).then((v) => {
     const f = v.fecha ? new Date(v.fecha + "T12:00:00").toLocaleDateString("es-CO", { day: "numeric", month: "long", year: "numeric" }) : "";
     document.getElementById("version").textContent = `Versión ${v.version}${f ? " · " + f : ""}`;
     if (v.dmg_arm64) document.getElementById("peso-mac").textContent = mb(v.dmg_arm64.tamano);
-    if (v.dmg_intel) { const b = document.getElementById("mac-intel"); b.hidden = false; document.getElementById("peso-intel").textContent = mb(v.dmg_intel.tamano); }
+    if (!v.dmg_intel) document.getElementById("intel").remove();
     if (v.novedades && v.novedades.length) {
-      document.getElementById("novedades").innerHTML = v.novedades.map((n) => `<li>${String(n).replace(/[<&]/g, (c) => c === "<" ? "&lt;" : "&amp;")}</li>`).join("");
-      document.getElementById("caja-novedades").hidden = false;
+      document.getElementById("lista-novedades").innerHTML = v.novedades.map((n) => `<li>${String(n).replace(/[<&]/g, (c) => c === "<" ? "&lt;" : "&amp;")}</li>`).join("");
+      document.getElementById("novedades").hidden = false;
     }
   }).catch(() => {});
-  document.getElementById("compartir").onclick = async () => {
-    const url = location.href.split("#")[0].split("?")[0];
+  document.getElementById("compartir").onclick = async (ev) => {
+    ev.preventDefault();
+    const url = location.origin + "/";
     try { if (navigator.share) { await navigator.share({ title: "Estadístico FilmFlow", text: "Instala la app Estadístico FilmFlow:", url }); return; } } catch (e) { if (e.name === "AbortError") return; }
     try { await navigator.clipboard.writeText(url); toast("Enlace copiado"); } catch (e) { toast(url); }
   };
+  // los videos se reproducen solos (sin sonido) cuando se ven en pantalla
+  const io = new IntersectionObserver((es) => es.forEach((e) => { const v = e.target; if (e.isIntersecting) { v.play().catch(() => {}); } else v.pause(); }), { threshold: .5 });
+  document.querySelectorAll("video").forEach((v) => { v.loop = true; io.observe(v); });
 </script>
 </body>
 </html>

@@ -783,7 +783,7 @@ function escucharVersionNueva() {
 }
 if ("serviceWorker" in navigator && !PRUEBA) escucharVersionNueva();
 function activarActualizaciones() {
-  navigator.serviceWorker.register("sw.js").then((reg) => {
+  navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then((reg) => {
     const revisar = async () => { if (navigator.onLine || await probarRed()) { reg.update().catch(() => {}); revisarVersion(false); } };
     revisar();
     document.addEventListener("visibilitychange", () => { if (!document.hidden && Date.now() - ultimaRevision > 5 * 60000) revisar(); });
@@ -794,7 +794,7 @@ function activarActualizaciones() {
 // guardada). Si el teléfono quedó en una vieja (Safari a veces no cambia sola), primero se le pide cambiar y, si en 25 s no lo
 // hizo, se borra SOLO la copia de la app (no tus datos ni tu sesión) y se recarga: queda en la versión publicada.
 const MI_VERSION = self.FF_VERSION || { id: "", app: "", fecha: "" };
-const URL_DESCARGAS = "https://filmflowtv.github.io/FilmFlow-descargas/";
+const URL_DESCARGAS = "https://filmflowestadistico.github.io/";
 let versionNube = null, ultimaRevision = 0, revisandoVersion = false, forzandoVersion = false;
 const numVersion = (v) => parseInt(String(v || "").replace(/\D/g, ""), 10) || 0;
 async function revisarVersion(aMano) {
@@ -825,8 +825,9 @@ async function forzarVersionNueva() {
     if (recargaPendiente) return;                   // ya cambió sola (controllerchange recarga)
     if (nOcupado || nProgreso || modalAbierto() || document.querySelector(".reporte-capa")) { setTimeout(forzar, 3000); return; }
     toast("Actualizando a la versión nueva…");
+    // se borra la copia guardada: al recargar, el service worker pide cada archivo a internet preguntando si cambió (nunca uno viejo)
+    try { const reg = await navigator.serviceWorker.getRegistration(); if (reg) await reg.update(); } catch (e) {}
     try { for (const k of await caches.keys()) await caches.delete(k); } catch (e) {}
-    try { for (const r of await navigator.serviceWorker.getRegistrations()) await r.unregister(); } catch (e) {}
     setTimeout(() => location.reload(), 900);
   }, 25000);
 }

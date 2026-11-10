@@ -1,4 +1,4 @@
-const VERSION='ff-1794343252';
+const VERSION='ff-1794349783';
 const ARCHIVOS=[
   'LEEME_CELULAR.txt',
   'app.js',
@@ -42,7 +42,8 @@ const ARCHIVOS=[
   'version.js',
   'worker.js',
 ];
-self.addEventListener('install', e => { e.waitUntil(caches.open(VERSION).then(c => c.addAll(ARCHIVOS)).then(() => self.skipWaiting())); });
+// cache:'reload' = siempre de internet (GitHub Pages deja guardar archivos 10 min: sin esto la versión nueva podía armarse con archivos viejos)
+self.addEventListener('install', e => { e.waitUntil(caches.open(VERSION).then(c => c.addAll(ARCHIVOS.map(u => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== VERSION).map(k => caches.delete(k)))).then(() => self.clients.claim())); });
 self.addEventListener('fetch', e => {
   const u = new URL(e.request.url);
@@ -53,7 +54,13 @@ self.addEventListener('fetch', e => {
       .catch(() => caches.match(e.request, { ignoreSearch: true })));
     return;
   }
-  e.respondWith(caches.match(e.request, { ignoreSearch: true }).then(r => r || fetch(e.request).catch(err => {
+  // lo que no está en la copia guardada se pide a internet PREGUNTANDO si cambió (no-cache: nunca un archivo viejo que el navegador
+  // guardó por su cuenta) y se agrega a la copia para usarlo sin internet
+  const red = () => fetch(e.request.mode === 'navigate' ? e.request.url : e.request, { cache: 'no-cache' }).then(r => {
+    if (r.ok && !u.search) { const c = r.clone(); caches.open(VERSION).then(k => k.put(u.pathname.endsWith('/') ? u.href + 'index.html' : u.href, c)).catch(() => {}); }
+    return r;
+  });
+  e.respondWith(caches.match(e.request, { ignoreSearch: true }).then(r => r || red().catch(err => {
     // sin internet, abrir la dirección raíz «/» (o cualquier página) muestra la app guardada
     if (e.request.mode === 'navigate') return caches.match('index.html', { ignoreSearch: true }).then(x => x || Promise.reject(err));
     throw err;

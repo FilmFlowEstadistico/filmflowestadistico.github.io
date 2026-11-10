@@ -344,3 +344,55 @@ details.rollo.arrastrando{transition:none!important;z-index:5;box-shadow:0 10px 
 .reporte-capa iframe{flex:1;border:0;width:100%;background:var(--fondo)}
 body.con-reporte{overflow:hidden}
 @media print{body.con-reporte>*:not(.reporte-capa){display:none}.reporte-barra{display:none}}
+
+/* ---------- pantallas acostadas: iPad horizontal (y computador) e iPhone acostado ----------
+   Las secciones pasan de la barra de abajo a una columna a la izquierda (como en iPadOS) y el contenido usa más ancho. */
+@media (min-width:1000px) and (min-height:600px){
+  :root{--riel:96px}
+  body{padding-bottom:calc(env(safe-area-inset-bottom) + 28px);padding-left:var(--riel)}
+  header.barra{margin-left:calc(-1 * var(--riel));padding-left:calc(18px + env(safe-area-inset-left));padding-right:calc(18px + env(safe-area-inset-right))}
+  header.barra img{width:calc(var(--riel) - 36px);height:auto;max-height:30px;object-fit:contain;object-position:left center}
+  .proyecto-btn{flex:0 1 560px;margin-right:auto}
+  nav.tabs{top:calc(var(--cab) + env(safe-area-inset-top));right:auto;width:var(--riel);flex-direction:column;justify-content:flex-start;gap:6px;
+    padding:18px 10px calc(14px + env(safe-area-inset-bottom)) calc(10px + env(safe-area-inset-left));border-top:0;border-right:1px solid var(--separador);min-height:0}
+  nav.tabs button{flex:none;min-height:66px;font-size:11.5px;gap:5px;padding:8px 0}
+  nav.tabs button.on{background:var(--seleccion)}
+  nav.tabs button svg{width:27px;height:27px}
+  main{max-width:1060px;padding:20px 28px 10px}
+  .cifras{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .rollo-imp{grid-template-columns:repeat(3,minmax(0,1fr))}
+  #accion-fija{left:var(--riel);bottom:0;padding-bottom:calc(10px + env(safe-area-inset-bottom))}
+  #accion-fija .in{max-width:640px}
+  #toast{left:calc(50% + var(--riel) / 2);bottom:calc(env(safe-area-inset-bottom) + var(--fijo) + 24px)}
+  .sheet{border-radius:26px;margin-bottom:auto;margin-top:auto}
+  .sheet-fondo.on{align-items:center}
+  body.sin-sesion{padding-left:0}
+}
+@media (orientation:landscape) and (max-height:520px){
+  :root{--riel:78px;--cab:46px}
+  html{scroll-padding-top:56px}
+  body{padding-bottom:calc(env(safe-area-inset-bottom) + 18px);padding-left:calc(var(--riel) + env(safe-area-inset-left));padding-right:env(safe-area-inset-right)}
+  header.barra{position:static;padding:calc(5px + env(safe-area-inset-top)) 12px 5px 18px}
+  header.barra img{display:none}
+  .proyecto-btn{flex:0 1 480px;margin-right:auto;min-height:38px;padding:3px 10px 4px 12px}
+  .proyecto-btn .p-etq{display:none}
+  .proyecto-btn .p-nom{grid-row:1/3}
+  .icono-btn{width:38px;height:38px}
+  nav.tabs{top:0;right:auto;width:calc(var(--riel) + env(safe-area-inset-left));flex-direction:column;justify-content:center;gap:2px;
+    padding:calc(6px + env(safe-area-inset-top)) 6px calc(6px + env(safe-area-inset-bottom)) calc(6px + env(safe-area-inset-left));border-top:0;border-right:1px solid var(--separador);min-height:0}
+  nav.tabs button{flex:1 1 0;max-height:64px;font-size:10px;gap:2px;padding:3px 0}
+  nav.tabs button.on{background:var(--seleccion)}
+  nav.tabs button svg{width:22px;height:22px}
+  main{max-width:960px;padding:10px 18px 8px}
+  .cifras{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .metrica.ancha .m-v{font-size:32px}
+  #accion-fija{left:calc(var(--riel) + env(safe-area-inset-left));bottom:0;padding:7px 14px calc(7px + env(safe-area-inset-bottom))}
+  #accion-fija .btn{min-height:46px}
+  #toast{left:calc(50% + var(--riel) / 2);bottom:calc(env(safe-area-inset-bottom) + var(--fijo) + 14px)}
+  .sheet{max-height:94vh}
+  .p-logo{width:min(180px,30vw);margin-bottom:14px}
+  #portada h1{font-size:26px;margin-bottom:10px}
+  .p-txt{margin-bottom:16px}
+  .p-hora{font-size:72px}
+  body.sin-sesion{padding-left:0}
+}
