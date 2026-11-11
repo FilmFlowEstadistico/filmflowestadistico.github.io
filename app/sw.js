@@ -1,6 +1,5 @@
-const VERSION='ff-1794349783';
+const VERSION='ff-1794356140';
 const ARCHIVOS=[
-  'LEEME_CELULAR.txt',
   'app.js',
   'assets/fondo_bienvenida.jpg',
   'assets/icono-180.png',
