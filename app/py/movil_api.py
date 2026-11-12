@@ -325,13 +325,12 @@ def html_incongruencias(cr, error, clave, elegidas, escrito=False, nota_error=""
         cuerpo += f'<hr><div class="item"><b>{esc(h["titulo"])}</b><p class="sub">{esc(h["detalle"])}</p>'
         cuerpo += H.aviso("aviso", h["causa"]) + _vista_hojas(h, clave, pos, len(hall))
         if h["celdas"]:
-            cambios = "   ·   ".join(f"{c['celda']}  {c['concepto']}: {c['antes_txt']} → {c['nuevo_txt']}" for c in h["celdas"])
-            cuerpo += f'<p class="nota">Se cambiaría en el estadístico:  {esc(cambios)}</p>'
+            cuerpo += f'<p class="nota">{esc(cc.texto_cambios(h))}</p>'
         elegido = h["id"] in elegidas
         if escrito:
-            cuerpo += H.chip("✔ corregido en el estadístico" if elegido else "sin corregir", "exito" if elegido else "info")
+            cuerpo += H.chip(f"✔ corregido en {cc.donde_corto(h)}" if elegido else "sin corregir", "exito" if elegido else "info")
         elif h["corregible"]:
-            cuerpo += H.segmentado([("dejar", "Dejar como está"), ("corregir", "Corregir en el estadístico")],
+            cuerpo += H.segmentado([("dejar", "Dejar como está"), ("corregir", f"Corregir en {cc.donde_corto(h)}")],
                                    "corregir" if elegido else "dejar", "marcar_seg", id=h["id"], clave=clave)
         else:
             cuerpo += H.chip("revísalo a mano", "info") + '<span class="nota"> la app no puede saber cuál es el dato correcto</span>'
@@ -418,7 +417,7 @@ def html_resumen():
         out.append(html_errores_escritura(m))
     if m.get("cruce") is not None or m.get("cruce_error"):
         out.append(html_incongruencias(m.get("cruce"), m.get("cruce_error"), "res", E["corr_res"], mensajes=E["msg_corr"],
-                                       accion=("Corregir las elegidas en el estadístico", "corregir_cruce")))
+                                       accion=("Corregir las elegidas", "corregir_cruce")))
     if len(unidades) > 1:
         out.append(H.segmentado([("todo", "Todo")] + [(u["id"], u["nombre"]) for u in unidades], vista_id, "unidad"))
     letras = " · ".join(t["letras"]) or "—"
@@ -1236,7 +1235,8 @@ def revisar(p):
         plan["cruce"], plan["cruce_error"] = None, datos.get("cruce_error")
         if datos.get("valores_reales") is not None and datos.get("est_grids"):
             try:
-                plan["cruce"] = cc.cruzar(datos["valores_reales"], datos["est_grids"][0], cfg2, excluir_dias={cc.numero_de_dia(reporte["dia"])})
+                plan["cruce"] = cc.cruzar(datos["valores_reales"], datos["est_grids"][0], cfg2, excluir_dias={cc.numero_de_dia(reporte["dia"])},
+                                          agregar_dias=False)
             except Exception as e:
                 plan["cruce_error"] = str(e)
         plan["est"], plan["est_error"] = _proponer_estadistico(cfg2, filas, reporte, datos.get("est_grids"))
@@ -1319,26 +1319,8 @@ def _escribir_estadistico(servicio, est, prop):
 
 
 def _aplicar_correcciones(servicio, est, hallazgos):
-    sid = rg.id_de_enlace(est["enlace"])
-    pestana_d = est["datos"]
-    pares = [(h, c) for h in hallazgos for c in h["celdas"]]
-    claves = [(pestana_d, c["celda"]) for _h, c in pares]
-    actuales = rg.leer_celdas(servicio, sid, claves)
-
-    def mismo(a_, b, tipo):
-        if tipo == "hora":
-            return ec.es_numero(a_) and ec.es_numero(b) and abs(float(a_) - float(b)) < 1.0 / 86400
-        return ec.igual(a_ if a_ not in (None, "") else 0.0, b if b not in (None, "") else 0.0)
-    if any(not mismo(actuales.get(k, ""), c["antes_raw"], c["tipo"]) for k, (_h, c) in zip(claves, pares)):
-        raise ErrorRegistro("El estadístico cambió mientras tanto (alguien editó esas celdas). No corregí nada: pulsa «Revisar» otra vez.")
-    rg.escribir_celdas(servicio, sid, [(pestana_d, c["celda"], c["nuevo"]) for _h, c in pares])
-    leidos = rg.leer_celdas(servicio, sid, claves)
-    salida = []
-    for h in hallazgos:
-        bien = all(mismo(leidos.get((pestana_d, c["celda"]), ""), c["nuevo"], c["tipo"]) for c in h["celdas"])
-        salida.append(("ok", f"Corregido {h['texto_dia']}: ahora el estadístico coincide con el estatus de tarjetas.") if bien else
-                      ("aviso", f"Corregí {h['texto_dia']}, pero al leerlo de vuelta no quedó como esperaba: revisa esa fila."))
-    return salida
+    """Estadístico, estatus de tarjetas o el día que faltaba: cruce_core.aplicar_correcciones (igual en el Mac)."""
+    return cc.aplicar_correcciones(servicio, rg, est, rc.cargar_config().get("hoja"), hallazgos)
 
 
 def _aplicar_errores_escritura(servicio, cfg, errores):
@@ -1524,11 +1506,9 @@ def corregir_cruce(p):
     hall = [h for h in ((cr["hallazgos"] + cr.get("redondeos", [])) if cr else []) if h["corregible"] and h["id"] in E["corr_res"]]
     if not hall:
         return pagina_resumen()
-    detalle = "\n".join(f"• {h['texto_dia']}: " + ", ".join(f"{c['celda']} {c['antes_txt']} → {c['nuevo_txt']}" for c in h["celdas"]) for h in hall)
+    titulo_, texto_ = cc.texto_confirmar(hall)
     resp = pagina_resumen()
-    resp["confirmar"] = {"titulo": "Corregir el estadístico",
-                         "texto": f"¿Hago {len(hall)} corrección(es) en el estadístico?\n\n{detalle}\n\nAntes de escribir vuelvo a leer esas celdas; si alguien las cambió, no toco nada.",
-                         "accion": "corregir_cruce_ok", "boton": "Corregir"}
+    resp["confirmar"] = {"titulo": titulo_, "texto": texto_, "accion": "corregir_cruce_ok", "boton": "Corregir"}
     return resp
 
 

@@ -66,6 +66,8 @@ def sugerir_celda(clave, texto):
     """Lo que probablemente quiso escribir quien tecleó `texto` en una columna numérica del estatus: «00:23:!4» → 0:23:14 (el «!» es la tecla
     del 1). Devuelve (valor para escribir, cómo se verá, motivo) o None si no se puede adivinar con seguridad (no se inventa nada)."""
     t = str(texto).strip()
+    if clave == "clips" and re.search(r"(?i)\d\s*clips?\s*$", t):          # «12 clips»
+        t = re.sub(r"(?i)\s*clips?\s*$", "", t)
     cambios = []
     limpio = ""
     for ch in t:
@@ -78,14 +80,40 @@ def sugerir_celda(clave, texto):
         return None
     motivo = ("cambié " + " y ".join(cambios) + " (son teclas que se confunden con ese número)") if cambios else "quité lo que sobraba"
     if clave == "duracion":
-        m = re.fullmatch(r"\s*(\d{1,3}):(\d{1,2}):(\d{1,2})\s*", limpio)
-        if not m or int(m[2]) >= 60 or int(m[3]) >= 60:
+        m = re.fullmatch(r"\s*(\d{1,3})[:.;](\d{1,2})[:.;](\d{1,2})\s*", limpio)
+        if m and not cambios and ":" not in limpio:
+            motivo = "los separadores eran puntos (o punto y coma) en vez de «:»"
+        if not m:
+            m2 = re.fullmatch(r"\s*(\d{1,2}):(\d{2})\s*", limpio)                       # «23:14» = minutos:segundos
+            if m2 and int(m2[1]) < 60 and int(m2[2]) < 60:
+                seg = int(m2[1]) * 60 + int(m2[2])
+                return seg / 86400.0, hms(seg), (motivo + "; " if cambios else "") + "faltaban las horas (23:14 = 0:23:14)"
+            m3 = re.fullmatch(r"\s*(?:(\d{1,3})\s*h)?\s*(?:(\d{1,2})\s*m(?:in)?)?\s*(?:(\d{1,2})\s*s(?:eg)?)?\s*", limpio, re.I)
+            if m3 and any(m3.groups()):                                                  # «1h 20m 5s»
+                seg = int(m3[1] or 0) * 3600 + int(m3[2] or 0) * 60 + int(m3[3] or 0)
+                return seg / 86400.0, hms(seg), "estaba escrita con h/m/s"
+            return None
+        if int(m[2]) >= 60 or int(m[3]) >= 60:
             return None
         seg = int(m[1]) * 3600 + int(m[2]) * 60 + int(m[3])
         return seg / 86400.0, hms(seg), motivo
     n = limpio.replace(" ", "")
     if clave == "clips":
-        return (int(n), n, motivo) if re.fullmatch(r"\d{1,5}", n) else None
+        m = re.fullmatch(r"(\d{1,5})(?:clips?)?", n, re.I)
+        return (int(m[1]), m[1], motivo) if m else None
+    unidad = re.fullmatch(r"(.*?)(TB|GB|MB)", n, re.I)              # «12.5 GB», «1,3TB», «500 MB»: a GB
+    factor = 1.0
+    if unidad:
+        n, u = unidad[1], unidad[2].upper()
+        factor = {"TB": 1000.0, "GB": 1.0, "MB": 0.001}[u]
+        motivo = f"pasé {u} a GB" if u != "GB" else "quité «GB»"
+    if re.fullmatch(r"\d{1,3}(\.\d{3})+,\d{1,2}", n):                  # «1.300,52» (puntos de miles y coma decimal)
+        v = float(n.replace(".", "").replace(",", ".")) * factor
+        return v, f"{v:,.2f}", "puntos de miles y coma decimal (1.300,52 = 1,300.52)"
+    if factor != 1.0 or unidad:
+        if re.fullmatch(r"\d+(?:[.,]\d+)?", n):
+            v = round(float(n.replace(",", ".")) * factor, 2)
+            return v, f"{v:,.2f}", motivo
     if re.fullmatch(r"\d{1,3}(,\d{3})*(\.\d+)?|\d+(\.\d+)?", n):          # «1,300.52» escrito como texto
         v = float(n.replace(",", ""))
         return v, f"{v:,.2f}", "quité las comas de miles" if "," in n and not cambios else motivo
@@ -477,7 +505,7 @@ def unir_f06(base, otros):
 # ---------------------------------------------------------------------------------------------
 _ROTULOS = {"total dias de rodaje": "dias_previstos", "dias rodados": "dias_rodados", "promedio por dia": "promedio",
             "espacio aprox. total": "espacio_previsto", "espacio aprox total": "espacio_previsto",
-            "espacio utilizado ocf": "utilizado", "audio": "audio",
+            "espacio utilizado ocf": "utilizado", "espacio utilizado": "utilizado", "audio": "audio",
             # cómo lo escriben otros proyectos (LC): «Total días rodaje», «Espacio total Aprox.», «Total shooting days»…
             "total dias rodaje": "dias_previstos", "total dias": "dias_previstos", "total shooting days": "dias_previstos",
             "shooting days": "dias_rodados", "espacio total aprox.": "espacio_previsto", "espacio total aprox": "espacio_previsto"}

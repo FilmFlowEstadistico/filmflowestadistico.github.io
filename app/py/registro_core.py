@@ -293,7 +293,7 @@ def patron_a_regex(patron):
     return re.compile("^" + texto, re.IGNORECASE)
 
 
-def grupo_de(nombre, cfg, audio=None):
+def grupo_de(nombre, cfg, audio=None, recientes=None):
     """El grupo cuyo patrón (el más específico) coincide con el nombre, o None.
     `audio`: lo que se sabe de ese BIN. True = es audio (se prefiere un rollo de Sonido); False = no lo es (se prefiere un rollo
     que no sea de Sonido); None = no se sabe: se prefiere uno que no sea de Sonido (así una «D» de dron no cae en el sonido)."""
@@ -307,10 +307,12 @@ def grupo_de(nombre, cfg, audio=None):
     de_sonido = [t for t in candidatos if grupo_es_sonido(t[2])]
     otros = [t for t in candidatos if not grupo_es_sonido(t[2])]
     preferidos = (de_sonido if audio else otros) or candidatos
-    return min(preferidos, key=lambda t: (t[0], t[1]))[2]
+    recientes = recientes or {}
+    # empate (el mismo patrón en varios rollos, p. ej. dos grabadoras ##Y##M): gana el que la hoja usó más recientemente
+    return min(preferidos, key=lambda t: (t[0], -recientes.get(t[2]["id"], -1), t[1]))[2]
 
 
-def grupo_de_audio(nombre, cfg, modelo=None):
+def grupo_de_audio(nombre, cfg, modelo=None, recientes=None):
     """El rollo de Sonido para un BIN que se sabe que es audio: el de la misma grabadora (`modelo`, si hay varios sonidos),
     el que lo reconoce por su nombre, o el primero de sonido, o None."""
     mk = clave_modelo(modelo)
@@ -318,10 +320,12 @@ def grupo_de_audio(nombre, cfg, modelo=None):
         misma = [x for x in cfg["grupos"] if grupo_es_sonido(x) and clave_modelo(x.get("modelo")) == mk]
         if misma:
             return next((x for x in misma if any(patron_a_regex(p).match(nombre) for p in x["patrones"])), misma[0])
-    g = grupo_de(nombre, cfg, audio=True)
+    g = grupo_de(nombre, cfg, audio=True, recientes=recientes)
     if g is not None and grupo_es_sonido(g):
         return g
-    return next((x for x in cfg["grupos"] if grupo_es_sonido(x)), None)
+    sonidos = [x for x in cfg["grupos"] if grupo_es_sonido(x)]
+    recientes = recientes or {}
+    return max(sonidos, key=lambda x: recientes.get(x["id"], -1)) if sonidos else None
 
 
 def patron_de_camara(letra):
@@ -414,6 +418,10 @@ def _tipo_de_patrones(patrones):                      # con memoria: se llama mi
     return "otro", "", ", ".join(patrones)
 
 
+# Tarjetas de sonido que se llaman por lo que son: Sound, SOUND_001, Audio, Audio 2, Sonido, SND_01, Snd…
+ES_NOMBRE_DE_SONIDO = re.compile(r"(?i)^\s*(sound|audio|sonido|snd)(?![a-z])")
+
+
 def adivinar_tipo(nombre_bin):
     """Qué parece ser un BIN que no conocemos: (tipo, letra, otro)."""
     letra = parece_camara(nombre_bin)
@@ -422,7 +430,7 @@ def adivinar_tipo(nombre_bin):
     emb = letra_incrustada(nombre_bin)
     if emb:                                                           # DJI_001_H10: la letra de la cámara va dentro del nombre
         return "otro", "", emb[1]
-    if any(patron_a_regex(p).match(nombre_bin) for p in PATRONES_SONIDO):
+    if any(patron_a_regex(p).match(nombre_bin) for p in PATRONES_SONIDO) or ES_NOMBRE_DE_SONIDO.match(str(nombre_bin)):
         return "sonido", "", ""
     if re.match(r"^PORTATIL", str(nombre_bin), re.IGNORECASE):     # grabadora de respaldo (LRDS4: PORTATIL, PORTATIL_03, modelo 633)
         return "sonido", "", "PORTATIL"
@@ -829,7 +837,11 @@ def leer_historial(valores, cfg, primera_fila=PRIMERA_FILA):
             nombre = _celda(fila, fmt, "cam")
             if not (isinstance(nombre, str) and nombre.strip()):
                 continue
-            grupo = grupo_de(nombre.strip(), cfg, audio=True if es_modelo_de_audio(_celda(fila, fmt, "modelo")) else None)
+            modelo_f = _celda(fila, fmt, "modelo")
+            if es_modelo_de_audio(modelo_f) or (clave_modelo(modelo_f) and any(grupo_es_sonido(x) and clave_modelo(x.get("modelo")) == clave_modelo(modelo_f) for x in cfg["grupos"])):
+                grupo = grupo_de_audio(nombre.strip(), cfg, modelo_f)          # la grabadora de ESA fila (688 ≠ 744)
+            else:
+                grupo = grupo_de(nombre.strip(), cfg)
             if grupo:
                 if grupo["id"] not in actual:
                     actual.append(grupo["id"])
@@ -1078,6 +1090,25 @@ def _clase_de_cobertura(cubiertas, filas, audio):
 
 def _convencion_fecha(muestras):
     """Cómo escribe ESTA hoja la fecha del día: ('serial'|'yyyymmdd'|'ddmmyyyy'|'texto8'|'texto', detalle)."""
+    # Hoja con fechas MEZCLADAS: unas como texto «27/10/2026» y otras como fecha de Google (CODT). Pasa en hojas con formato de
+    # EE. UU.: la gente escribe día/mes y Google solo convierte a fecha las que pueden ser mes/día (≤ 12). La app escribe como la
+    # gente (texto día/mes con ceros) y Google la guarda exactamente igual que las demás.
+    textos = [str(v).strip() for v in muestras if isinstance(v, str) and re.fullmatch(r"\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}", str(v).strip())]
+    seriales = [v for v in muestras if isinstance(v, (int, float)) and not isinstance(v, bool) and 20000 < v < 80000]
+    if textos and seriales:
+        orden = "dmy"
+        for x in textos:
+            a_, b_ = (int(t) for t in re.split(r"[/.-]", x)[:2])
+            if b_ > 12 >= a_:
+                orden = "mdy"
+                break
+            if a_ > 12:
+                break
+        partes = [p for x in textos for p in re.split(r"[/.-]", x)[:2]]
+        chicos = [p for p in partes if int(p) < 10]
+        ceros = any(p.startswith("0") for p in chicos) if chicos else True
+        sep = re.search(r"[/.-]", textos[-1]).group(0)
+        return "texto", {"sep": sep, "orden": orden, "ceros": ceros, "anio2": len(re.split(r"[/.-]", textos[-1])[2]) == 2}
     for v in muestras:
         if isinstance(v, bool) or _vacio(v):
             continue
@@ -1188,7 +1219,7 @@ def estilo_de_hoja(valores, fmt, bloques, cfg=None):
     filas = ref["filas"]
     et_todas = any(not _vacio(_celda(fila(r), fmt, "dia")) for r in filas[1:])
     fecha_todas = "fecha_col" in fmt["col"] and any(not _vacio(_celda(fila(r), fmt, "fecha_col")) for r in filas[1:])
-    muestras = [_celda(fila(r), fmt, "fecha_col") for b in con_material[-6:] for r in b["filas"][:1]] if "fecha_col" in fmt["col"] else []
+    muestras = [_celda(fila(r), fmt, "fecha_col") for b in con_material[-10:] for r in b["filas"][:1]] if "fecha_col" in fmt["col"] else []
     estilo = {"etiqueta": _celda(fila(filas[0]), fmt, "dia"), "et_todas": et_todas, "fecha_todas": fecha_todas,
               "fecha": _convencion_fecha(muestras), "bloque_ref": ref, "total": None}
     if usa_total and ref["total"]:
@@ -1737,12 +1768,18 @@ def agregar_hallados(cfg, elegidos):
 # =============================================================================
 # 4. ARMAR LAS FILAS DEL DÍA
 # =============================================================================
-def clasificar(reporte, cfg):
+def clasificar(reporte, cfg, recientes=None):
+    """`recientes`: {id de rollo: última fila de la hoja donde se usó} (de leer_historial): desempata rollos con el mismo patrón."""
     por_grupo, sin = {}, []
     for b in reporte["bins"]:
-        g = grupo_de_audio(b["nombre"], cfg) if b.get("audio") else grupo_de(b["nombre"], cfg, audio=b.get("audio"))
+        g = (grupo_de_audio(b["nombre"], cfg, recientes=recientes) if b.get("audio")
+             else grupo_de(b["nombre"], cfg, audio=b.get("audio"), recientes=recientes))
         if g is None and b.get("audio"):
-            g = grupo_de(b["nombre"], cfg)
+            g = grupo_de(b["nombre"], cfg, recientes=recientes)
+        if g is None and ES_NOMBRE_DE_SONIDO.match(b["nombre"]):          # «Audio», «Sonido», «SND_01»: van al rollo de Sonido
+            g = grupo_de_audio(b["nombre"], cfg, recientes=recientes)
+            if g is not None and b.get("audio") is None:
+                b["audio"] = True
         (por_grupo.setdefault(g["id"], []) if g else sin).append(b)
     return por_grupo, sin
 
@@ -1760,7 +1797,7 @@ def _es_ambiguo(nombre, cfg):
 
 
 def armar_filas(reporte, cfg, hist):
-    por_grupo, sin = clasificar(reporte, cfg)
+    por_grupo, sin = clasificar(reporte, cfg, hist.get("ultima_fila"))
     if sin:
         raise ErrorRegistro("Hay nombres que no reconozco: " + ", ".join(b["nombre"] for b in sin))
     mags = dict(hist["ultimo_mag"])

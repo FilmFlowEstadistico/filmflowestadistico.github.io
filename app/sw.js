@@ -1,4 +1,4 @@
-const VERSION='ff-1794356140';
+const VERSION='ff-1794503085';
 const ARCHIVOS=[
   'app.js',
   'assets/fondo_bienvenida.jpg',

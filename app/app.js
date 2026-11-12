@@ -312,6 +312,42 @@ function pedirTokenYa(interactivo, scope) {
     catch (e) { errorConexion = "popup_failed_to_open"; res(null); }
   });
 }
+// ---- App instalada en la pantalla de inicio (iPhone/iPad): la ventanita de Google pierde el camino de vuelta cuando se entra con un
+// correo NUEVO (hay que escribir correo y contraseña), así que solo funcionaba con la cuenta que ya tenía la sesión abierta. Ahí se usa
+// el inicio de sesión «por redirección»: la misma pantalla va a Google y Google la devuelve a la app con el permiso (#access_token=…).
+// La dirección de regreso (…/app/) debe estar en Google Cloud → Clientes → «Cliente web 1» → URI de redireccionamiento autorizados.
+const ES_APP_INSTALADA = navigator.standalone === true || !!(window.matchMedia && matchMedia("(display-mode: standalone)").matches);
+function urlDeRegreso() { return location.origin + location.pathname.replace(/index\.html$/, ""); }
+function irAGoogle(scope) {
+  const estado = Math.random().toString(36).slice(2) + Date.now().toString(36);
+  guardar("ff-oauth", JSON.stringify({ e: estado, scope, p: actual }));
+  const q = new URLSearchParams({ client_id: CFG.clientId, redirect_uri: urlDeRegreso(), response_type: "token", scope,
+    include_granted_scopes: "true", prompt: "select_account", state: estado });
+  location.href = "https://accounts.google.com/o/oauth2/v2/auth?" + q.toString();
+}
+async function regresoDeGoogle() {
+  if (!/(^#|&)(access_token|error)=/.test(location.hash)) return null;
+  const h = new URLSearchParams(location.hash.slice(1));
+  history.replaceState(null, "", location.pathname + location.search);          // el permiso no se queda en la dirección
+  let g = null; try { g = JSON.parse(leer("ff-oauth") || "null"); } catch (e) {}
+  guardar("ff-oauth", "null");
+  if (g && h.get("state") !== g.e) { errorConexion = "estado"; return "error"; }
+  if (h.get("error")) {
+    if (/scope/i.test(h.get("error")) && g && g.scope.includes("drive")) {      // Google no aceptó el permiso de Drive: se entra sin él
+      irAGoogle(g.scope.split(" ").filter((x) => !x.includes("drive")).join(" ")); return "redirige";
+    }
+    errorConexion = h.get("error"); return "error";
+  }
+  const tok = h.get("access_token");
+  sesion = { token: tok, exp: Date.now() + (parseInt(h.get("expires_in"), 10) || 3600) * 1000, correo: null, permisos: h.get("scope") || "" };
+  try {
+    const u = await (await fetch("https://www.googleapis.com/oauth2/v3/userinfo", { headers: { Authorization: "Bearer " + tok } })).json();
+    sesion.correo = u.email || null;
+  } catch (e) {}
+  guardar("ff-sesion", JSON.stringify(sesion));
+  if (sesion.correo) guardar("ff-correo", sesion.correo);
+  return "ok";
+}
 async function pedirToken(interactivo) {
   if (PRUEBA) return PRUEBA.token;
   errorConexion = "";
@@ -336,10 +372,13 @@ function textoErrorConexion() {
   if (e === "toca_otra_vez") return "Ya está lista la conexión con Google. Toca el botón otra vez.";
   if (e === "popup_failed_to_open") return "Safari no abrió la ventana de Google. Toca el botón otra vez. Si sigue igual, en Ajustes → Safari desactiva «Bloquear ventanas emergentes».";
   if (e === "popup_closed") return "Cerraste la ventana de Google antes de terminar. Toca el botón para intentarlo otra vez.";
-  if (/access_denied/i.test(e)) return "Google no dejó entrar. Revisa que tu correo esté como «usuario de prueba» en Google Cloud (Público → Usuarios de prueba), o que hayas marcado todas las casillas de permisos.";
+  if (/access_denied/i.test(e)) return "No se dio el permiso: en la pantalla de Google hay que tocar «Continuar» y marcar TODAS las casillas (si sale «Google no verificó esta app», toca «Configuración avanzada» → «Ir a …»).";
+  if (e === "estado") return "El inicio de sesión no terminó bien (la respuesta de Google no coincide). Vuelve a tocar el botón.";
+  if (/redirect_uri/i.test(e)) return "Google no reconoce la dirección de la app para volver. Avísale a quien administra la app (Google Cloud → URI de redireccionamiento).";
   return "No se conectó la cuenta de Google" + (e && e !== "sin_respuesta" ? " (" + e + ")" : "") + ". Vuelve a intentarlo.";
 }
 async function conectar() {
+  if (ES_APP_INSTALADA && !PRUEBA && CFG.clientId) { irAGoogle(PERMISOS); return; }
   const t = await pedirToken(true);
   if (t) {
     toast("Cuenta conectada" + (sesion.correo ? ": " + sesion.correo : ""));
@@ -847,6 +886,8 @@ function pintarVersion() {
 // ---------- arranque ----------
 (async () => {
   cargarSesion(); revisarRed(); if (!navigator.onLine) probarRed();
+  const regreso = PRUEBA ? null : await regresoDeGoogle();          // volviendo de iniciar sesión (app instalada)
+  if (regreso === "redirige") return;
   if (!PRUEBA && CFG.clientId) cargarGIS().catch(() => {});
   const sinSesion = !tokenVigente() && !PRUEBA && !leer("ff-correo");
   let conCache = false;
@@ -863,6 +904,8 @@ function pintarVersion() {
   }
   try { await motorListo; } catch (e) { await ofrecerReparar(e); return; }
   ocupado(false); if (conCache) progreso(false);
+  if (regreso === "ok") toast("Cuenta conectada" + (sesion.correo ? ": " + sesion.correo : ""));
+  if (regreso === "error") await modal({ titulo: "No se pudo conectar", texto: textoErrorConexion(), si: "Entendido", no: "" });
   if (almacenFalla || sinGuardar) avisoPrivado();
   if ("serviceWorker" in navigator && !PRUEBA) activarActualizaciones();
   const inicial = new URLSearchParams(location.search).get("p") || "resumen";

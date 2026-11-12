@@ -467,6 +467,16 @@ def _fila_del_dia(tabla, num, fecha=None, datos=None, unidad=1, dedicado=False, 
                             f"{unidad} lleva su propio estadístico, conéctalo en «Hojas conectadas → Agregar otro estadístico».")
     if isinstance(fecha, datetime):
         fecha = fecha.date()
+    repetidos = len({d["num"] for d in tabla["dias"]}) < len(tabla["dias"])   # la numeración vuelve a empezar (por lugar)
+    if fecha is not None and datos is not None and (len(candidatas) > 1 or (not candidatas and repetidos)):
+        misma = [d for d in candidatas if d.get("fecha") == fecha]
+        llenas = [d for d in candidatas if any(es_numero(cel(datos, d["fila"], c)) and cel(datos, d["fila"], c) > 0 for c in tabla["gb"].values())]
+        if not misma and len(llenas) == len(candidatas) and all(d.get("fecha") for d in candidatas):
+            # Microhistorias: DAY_005 LMA, MGF y TDS ya están escritos con otras fechas y llega DAY_005 CSC → NO es ninguno de
+            # ellos: va por FECHA, debajo del día anterior (DAY_004 CSC), con su misma etiqueta (nunca encima de otro lugar)
+            libre = _fila_libre_por_fecha(tabla, num, fecha, datos, unidad, dedicado)
+            if libre is not None:
+                return libre, False
     if not candidatas:
         libre = _fila_libre_para(tabla, num, datos, unidad, dedicado)
         if libre is not None:
@@ -486,6 +496,22 @@ def _fila_del_dia(tabla, num, fecha=None, datos=None, unidad=1, dedicado=False, 
         if vacias:
             return vacias[0], len(vacias) > 1
     return candidatas[0], True
+
+
+def _fila_libre_por_fecha(tabla, num, fecha, datos, unidad=1, dedicado=False):
+    """El día `num` de fecha `fecha` no tiene fila y los números se repiten por lugar: va debajo del día con la fecha anterior más
+    cercana (usa la fila vacía de justo debajo o inserta una), con la etiqueta de ese día y el número nuevo."""
+    de_unidad = lambda d: dedicado or tabla.get("unidad") is None or d.get("unidad") in (None, unidad)
+    antes = [d for d in tabla["dias"] if d.get("fecha") and d["fecha"] < fecha and de_unidad(d)]
+    if not antes:
+        return None
+    ant = max(antes, key=lambda d: (d["fecha"], d["fila"]))
+    base = ant["texto"].strip()
+    etiqueta = _siguiente_etiqueta(base, num)
+    r = ant["fila"] + 1
+    libre = r < len(datos) and _fila_usable(tabla, datos, r) and not str(cel(datos, r, tabla["dia"])).strip()
+    return {"fila": r, "num": num, "suf": ant["suf"], "texto": etiqueta, "fecha": None, "unidad": ant.get("unidad"),
+            "nueva_etiqueta": etiqueta, "debajo_de": base, **({} if libre else {"insertar": True})}
 
 
 def _siguiente_etiqueta(texto, num):
@@ -625,10 +651,19 @@ def _nuevas_camaras(datos, resumen, letras, nombre_datos):
             filas_dia = [d["fila"] for d in tabla["dias"]]
             r_tot = next((r for r in range(enc + 1, len(datos)) if _n(cel(datos, r, 0)).startswith("total")), None)
             col_total = tabla["total"]
+            # la fórmula de la fila TOTAL se copia de la cámara más cercana cuyo TOTAL sí sume los días (en AAZ la CAM Z de al lado
+            # solo suma la fila TEST_CAM: =SUM(N4), y en clips no tiene TOTAL)
+            fuente = vecino
+            if r_tot is not None:
+                def _suma_bien(c):
+                    t = cel(datos, r_tot, c)
+                    return es_numero(t) and abs(float(t) - sum(float(v) for r in filas_dia if es_numero(v := cel(datos, r, c)))) < 0.05
+                fuente = next((c for c in sorted(cols.values(), key=lambda c: (abs(c - vecino), c)) if _suma_bien(c)), vecino)
             _insertar_col(datos, pos)
             _desplazar(est, "datos", "col", pos)
             est["ops"].append(("col", "datos", pos, heredar_antes))
             vec_post = vecino + (1 if vecino >= pos else 0)
+            fuente_post = fuente + (1 if fuente >= pos else 0)
             while len(datos[enc]) <= pos:
                 datos[enc].append("")
             datos[enc][pos] = titulo
@@ -639,11 +674,11 @@ def _nuevas_camaras(datos, resumen, letras, nombre_datos):
                         datos[r].append("")
                     datos[r][pos] = 0
                     est["celdas"].append(("datos", r, pos, 0))
-            if r_tot is not None and str(cel(datos, r_tot, vec_post)).strip() != "":
-                est["copias"].append(("datos", r_tot, vec_post, r_tot, pos))     # la fórmula de la fila TOTAL (=SUM(H4:H34) → su columna)
+            if r_tot is not None and str(cel(datos, r_tot, fuente_post)).strip() != "":
+                est["copias"].append(("datos", r_tot, fuente_post, r_tot, pos))  # la fórmula de la fila TOTAL (=SUM(H4:H34) → su columna)
                 while len(datos[r_tot]) <= pos:
                     datos[r_tot].append("")
-                datos[r_tot][pos] = datos[r_tot][vec_post]          # (para que la siguiente cámara nueva también la copie de esta)
+                datos[r_tot][pos] = 0                               # (columna nueva: sus días están en 0)
             if grupo == "gb" and col_total is not None:
                 # «TOTAL (GB)» de cada día debe sumar también esta cámara: si su fórmula no la incluye sola (la columna quedó al
                 # final del rango, o la hoja suma celda por celda como Microhistorias: =SUM(E4,F4,G4,M4)), se le agrega
@@ -862,11 +897,19 @@ def _proponer(datos, resumen, filas, reporte, es_sonido, dedicado=False, nombre_
         cambios += extra
         todos += extra
 
+    if tabla["total"] is not None and not solo_sonido:
+        # que el «TOTAL (GB)» de ESTE día sume cada cámara con material (AAZ: =SUM(E5:L5)+AA5 deja fuera la CAM J de la columna M);
+        # al escribir se lee su fórmula y solo se toca si de verdad le falta (registro_google.sumar_columna)
+        cams = list(tabla["gb"].values())
+        for letra, c in tabla["gb"].items():
+            if calc["gb"].get(letra, 0.0) > 0:
+                estructura["ampliar"].append({"hoja": "datos", "col_total": tabla["total"], "nueva": c, "cams": cams,
+                                              "filas": [r], "solo_dia": True})
     for c_ in cambios + [x for x in todos if x not in cambios]:            # dónde estaba cada celda antes de crear filas/columnas
         a_ = _antes_de(estructura, c_["hoja"], c_["fila"], c_["col"])
         c_["celda_antes"] = a1(*a_) if a_ else None
     return {"dia": reporte["dia"], "fecha": reporte["fecha"], "fila": r, "texto_dia": dia["texto"], "insertar_fila": insertar,
-            "estructura": estructura if estructura["ops"] else None,
+            "estructura": estructura if (estructura["ops"] or estructura["ampliar"]) else None,
             "cambios": cambios, "cambios_todos": todos, "avisos": avisos, "calc": calc, "tenia_datos": tenia_datos,
             "vista": vista_previa(datos, resumen, tabla, dia, cambios, calc),
             "lectura_total": a1(r, tabla["total"]) if tabla["total"] is not None else None,

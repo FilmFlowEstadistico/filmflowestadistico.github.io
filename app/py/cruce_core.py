@@ -9,13 +9,15 @@ Reglas (las mismas con las que la app escribe el estadístico, así que «cuadra
   - Cámara = primera letra del BIN (A_0124… → A). El sonido va aparte (AUDIO).
   - GB y clips por letra; ROLLOS = cuántas tarjetas de video; DURACIÓN = suma de las tarjetas de video (sin audio).
   - El estatus de tarjetas es la FUENTE (viene de Silverstack); el estadístico se corrige a partir de él.
-    Si el error está en el estatus, la app lo avisa pero no lo toca (no puede saber cuál fila es la mala).
+    Si el error está en el estatus y se sabe exactamente cuál celda es (una tarjeta sin peso o con un peso imposible, una tarjeta
+    sin llenar, la fecha que contradice al archivo de la grabadora), se propone corregir ESA celda del estatus (`hoja: "estatus"`).
+    Un día que falta en el estadístico se propone agregarlo entero (`propuesta`, como al registrar el día).
 
 No escribe nada: solo devuelve hallazgos. Cada hallazgo trae las celdas del estadístico que se cambiarían, para que la persona decida.
 """
 
 import re
-from datetime import date
+from datetime import date, datetime
 
 import estadistico_core as ec
 import registro_core as rc
@@ -71,13 +73,17 @@ def _leer_dias_f06(filas, cfg, claves, i0, col):
         seg = rs._segundos(ec.cel([fila], 0, col["duracion"]))
         if not gb and not clips and not seg:
             actual.setdefault("vacias", []).append(nombre.strip())     # fila preparada de antemano (D007…) sin material todavía
+            actual.setdefault("vacias_filas", []).append({
+                "nombre": nombre.strip(), "fila": n + 1, "cam": rc.clave_de_bin(nombre, claves),
+                "sonido": bool((g and g["nombre"] in sonido) or rc.es_nombre_de_sonido(nombre) or rc.es_modelo_de_audio(modelo))})
             continue
         con_letra = bool(re.match(r"^[A-Za-z]+_?\d", nombre.strip()))        # «BETACAM_TEST» no dice de qué cámara es
         actual["filas"].append({"nombre": nombre.strip(), "cam": rc.clave_de_bin(nombre, claves), "cam_dudosa": not con_letra, "gb": gb, "clips": clips, "seg": seg,
                                 "sonido": bool((g and g["nombre"] in sonido) or rc.es_nombre_de_sonido(nombre)
                                                or rc.es_modelo_de_audio(modelo)), "fila": n + 1})
     for d in dias:                                     # día y mes al revés en la hoja: manda el archivo de la grabadora
-        d["fecha"] = ec.fecha_segun_sonido(d["fecha"], [f["nombre"] for f in d["filas"] if f["sonido"]])
+        d["fecha"] = ec.fecha_segun_sonido(d["fecha"], [f["nombre"] for f in d["filas"] if f["sonido"]]
+                                           + [f["nombre"] for f in d.get("vacias_filas", []) if f["sonido"]])
     return dias
 
 
@@ -153,11 +159,26 @@ def _vista06(g06, col, titulos, d06, celdas, tipo, malas=()):
 
     nombre_de = {col.get("dia"): "dia", col.get("fecha_col"): "fecha", col["cam"]: "cam", col["clips"]: "clips",
                  col["duracion"]: "duracion", col["gb"]: "gb"}
+    # celdas del ESTATUS que se corregirían: se ven «antes → nuevo» en verde (también en filas sin llenar, que no están en d06["filas"])
+    arreglo = {}
+    for c in celdas:
+        if c.get("hoja") == "estatus" and nombre_de.get(c["col"]):
+            arreglo[(c["fila"] + 1, nombre_de[c["col"]])] = c
+    lista = list(d06["filas"])
+    vistas = {f["fila"] for f in lista}
+    for v in d06.get("vacias_filas", []):
+        if v["fila"] not in vistas and any(k[0] == v["fila"] for k in arreglo):
+            lista.append({"nombre": v["nombre"], "fila": v["fila"], "sonido": v["sonido"], "cam": v["cam"], "gb": None, "clips": None, "seg": None})
+    lista.sort(key=lambda f: f["fila"])
     filas = []
-    for i, f in enumerate(d06["filas"][:16]):
+    for i, f in enumerate(lista[:16]):
         celdas_f = []
         for c in cols:
             medida = nombre_de.get(c)
+            cc_ = arreglo.get((f["fila"], medida))
+            if cc_ is not None:
+                celdas_f.append((f"{cc_['antes_txt']} → {cc_['nuevo_txt']}", "bien"))
+                continue
             if medida == "dia":
                 texto = str(d06["etiqueta"]) if i == 0 else ""
             elif medida == "fecha":
@@ -165,14 +186,14 @@ def _vista06(g06, col, titulos, d06, celdas, tipo, malas=()):
             elif medida == "cam":
                 texto = f["nombre"]
             elif medida == "clips":
-                texto = str(f["clips"])
+                texto = "" if f["clips"] is None else str(f["clips"])
             elif medida == "duracion":
-                texto = rs.hms(f["seg"])
+                texto = "" if f["seg"] is None else rs.hms(f["seg"])
             else:
-                texto = f"{f['gb']:,.2f}"
+                texto = "" if f["gb"] is None else f"{f['gb']:,.2f}"
             celdas_f.append((texto, marca(f, medida)))
         filas.append({"n": f["fila"], "dia": False, "celdas": celdas_f})
-    return {"titulos": titulos, "filas": filas, "recortado": len(d06["filas"]) > 16}
+    return {"titulos": titulos, "filas": filas, "recortado": len(lista) > 16}
 
 
 def _casi(a, b, tol):
@@ -234,9 +255,10 @@ def marcar_audio_mezclado(filas06, datos07, r, tabla, claves=None):
     return {"nombre": f["nombre"], "cam": letra, **f["audio_mezclado"]}
 
 
-def cruzar(g06, datos07, cfg, excluir_dias=()):
+def cruzar(g06, datos07, cfg, excluir_dias=(), agregar_dias=True):
     """Compara los días que están en las dos hojas. `g06`: valores reales del estatus; `datos07`: «Datos Generales».
     `excluir_dias`: números de día que no se miran (el que se está registrando ahora).
+    `agregar_dias`: proponer agregar al estadístico los días que le faltan (en «Registrar día» no: se está escribiendo otra fila).
     Devuelve {'hallazgos': [...], 'comparados': n_días, 'avisos': [...]}.
     Cada hallazgo: {'id','dia','texto_dia','tipo','titulo','detalle','causa','corregible','celdas':[cambio…],'v06','v07'}."""
     tabla = ec.encontrar_tabla(datos07)
@@ -252,17 +274,41 @@ def cruzar(g06, datos07, cfg, excluir_dias=()):
     ritmo = _ritmo_tipico(dias06)
     ignoradas = [0]            # diferencias de redondeo que no se marcan (se avisa cuántas)
     cols06 = _columnas_f06(g06)[1]
+    col_fecha06 = cols06.get("fecha_col")
     titulos06 = [str(ec.cel(g06, _columnas_f06(g06)[0], c)) for c in _cols_vista06(cols06)]
 
     ctx = {"d06": None}
 
     def nuevo(num, d07, tipo, titulo, detalle, causa, celdas, corregible, v06="", v07="", malas06=()):
         d06 = ctx["d06"]
+        c07 = [c for c in celdas if c.get("hoja", "datos") == "datos"]
         hallazgos.append({"id": len(hallazgos) + 1, "dia": num, "texto_dia": d07["texto"] if d07 else f"día {num}", "tipo": tipo,
                           "titulo": titulo, "detalle": detalle, "causa": causa, "corregible": corregible and bool(celdas),
                           "celdas": celdas, "v06": v06, "v07": v07,
-                          "vista07": _vista07(datos07, tabla, d07, celdas, corregible and bool(celdas), tipo),
+                          "vista07": _vista07(datos07, tabla, d07, c07, corregible and bool(c07), tipo) if (c07 or not celdas) else None,
                           "vista06": _vista06(g06, cols06, titulos06, d06, celdas, tipo, malas06) if d06 else None})
+        return hallazgos[-1]
+
+    def celda06(fila1, col, concepto, nuevo_v, tipo):
+        """Una celda del ESTATUS que se corregiría (`fila1` = número de fila de la hoja, 1 = la primera)."""
+        antes = ec.cel(g06, fila1 - 1, col)
+        return {"hoja": "estatus", "celda": ec.a1(fila1 - 1, col), "fila": fila1 - 1, "col": col, "concepto": concepto,
+                "antes": antes if ec.es_numero(antes) else (antes or ""), "antes_raw": antes, "nuevo": nuevo_v, "tipo": tipo,
+                "antes_txt": ec._bonito(antes, tipo) if antes not in ("", None) else "vacía", "nuevo_txt": ec._bonito(nuevo_v, tipo)}
+
+    def celda_fecha(hoja, rr, col, fecha, leida=None, concepto="FECHA"):
+        raw = (g06 if hoja == "estatus" else datos07)
+        antes = ec.cel(raw, rr, col)
+        directa = rs._fecha(antes)
+        if leida is not None and directa != leida and _fecha_o_none(leida.year, leida.day, leida.month) == directa:
+            # la hoja guarda las fechas con día y mes al revés (Google en formato de EE. UU.: se teclea «09/11/2026» y guarda 11 de
+            # septiembre, pero se VE como se tecleó): se escribe igual que quedaría al teclearla, para que se siga viendo bien
+            al_reves = _fecha_o_none(fecha.year, fecha.day, fecha.month) if fecha.day <= 12 else None
+            nuevo_v = _fecha_como(antes, al_reves) if al_reves else f"{fecha.day:02d}/{fecha.month:02d}/{fecha.year}"
+        else:
+            nuevo_v = _fecha_como(antes, fecha)
+        return {"hoja": hoja, "celda": ec.a1(rr, col), "fila": rr, "col": col, "concepto": concepto, "antes": antes, "antes_raw": antes,
+                "nuevo": nuevo_v, "tipo": "fecha", "antes_txt": _texto_de_fecha(antes), "nuevo_txt": f"{fecha:%d/%m/%Y}"}
 
     for pos06, d06 in enumerate(dias06):
         num = d06["num"]
@@ -272,16 +318,26 @@ def cruzar(g06, datos07, cfg, excluir_dias=()):
         d07 = filas07.get(pos06)
         if d07 is None:
             if any(f["gb"] > 0 for f in d06["filas"]):
-                nuevo(num, None, "falta_en_07", f"El día {num} no tiene fila en el estadístico",
-                      f"Está en el estatus de tarjetas ({d06['etiqueta']}), pero «Datos Generales» no tiene su fila.",
-                      "Falta agregar la fila del día en el estadístico.", [], False)
+                prop, motivo = _proponer_dia_faltante(datos07, tabla, d06) if agregar_dias else \
+                    (None, "Puedes agregarlo desde el Resumen («Corregir»).")
+                h = nuevo(num, None, "falta_en_07", f"El día {num} no tiene fila en el estadístico",
+                          f"Está en el estatus de tarjetas ({d06['etiqueta']}), pero «Datos Generales» no tiene su fila.",
+                          ("Lo agrego al estadístico con los datos del estatus de tarjetas, igual que al registrar un día: "
+                           f"«{prop['texto_dia']}» en la fila {prop['fila'] + 1}"
+                           + (" (fila nueva)" if prop.get("insertar_fila") else "") + "." if prop else
+                           "Falta agregar la fila del día en el estadístico. " + motivo),
+                          prop["cambios"] if prop else [], bool(prop))
+                if prop:
+                    h["propuesta"] = prop
             continue
         comparados += 1
         r = d07["fila"]
         f06, f07 = d06.get("fecha"), d07.get("fecha")
-        if f06 and f07 and f06 != f07:
-            pista = ""
-            for f in d06["filas"]:                          # el archivo de sonido lleva la fecha de la grabadora: 26Y10M09 = 09/10/2026
+        if f06 and f07 and f06 != f07 and f06.day <= 12 and _fecha_o_none(f06.year, f06.day, f06.month) == f07:
+            pass       # día y mes al revés: Google con formato de EE. UU. guardó «10/11/2026» como 11 de octubre; en la hoja se ve igual
+        elif f06 and f07 and f06 != f07:
+            pista, fs = "", None
+            for f in d06["filas"] + d06.get("vacias_filas", []):   # el archivo de sonido lleva la fecha de la grabadora: 26Y10M09 = 09/10/2026
                 mm = re.match(r"(\d{2})Y(\d{2})M(\d{2})", f["nombre"]) if f["sonido"] else None
                 if mm:
                     try:
@@ -291,10 +347,22 @@ def cruzar(g06, datos07, cfg, excluir_dias=()):
                     pista = (f" El archivo de sonido «{f['nombre']}» es del {fs:%d/%m/%Y}"
                              + (", como dice el estadístico." if fs == f07 else ", como dice el estatus de tarjetas." if fs == f06 else "."))
                     break
-            nuevo(num, d07, "fecha", f"{d07['texto']}: la fecha no coincide",
-                  f"Estatus de tarjetas: {f06:%d/%m/%Y} · estadístico: {f07:%d/%m/%Y}.",
-                  "Una de las dos hojas tiene la fecha equivocada; los reportes por fecha usan la del estatus de tarjetas." + pista,
-                  [], False)
+            if fs is not None and fs == f07:                # el archivo de la grabadora le da la razón al estadístico: se corrige el estatus
+                filas_dia = sorted({f["fila"] for f in d06["filas"]} | {f["fila"] for f in d06.get("vacias_filas", [])})
+                cols_f = col_fecha06
+                celdas_f = [celda_fecha("estatus", x - 1, cols_f, f07, f06) for x in filas_dia
+                            if cols_f is not None and f06 in _lecturas_de_fecha(ec.cel(g06, x - 1, cols_f))]
+                nuevo(num, d07, "fecha", f"{d07['texto']}: la fecha no coincide",
+                      f"Estatus de tarjetas: {f06:%d/%m/%Y} · estadístico: {f07:%d/%m/%Y}.",
+                      "La fecha equivocada es la del estatus de tarjetas." + pista
+                      + (" La corrijo en el estatus." if celdas_f else ""), celdas_f, bool(celdas_f))
+            else:
+                nuevo(num, d07, "fecha", f"{d07['texto']}: la fecha no coincide",
+                      f"Estatus de tarjetas: {f06:%d/%m/%Y} · estadístico: {f07:%d/%m/%Y}.",
+                      "Una de las dos hojas tiene la fecha equivocada. El estatus de tarjetas es la fuente (los reportes por fecha usan "
+                      "la suya), así que la corrijo en el estadístico; si la buena es la del estadístico, déjala como está y corrige el estatus."
+                      + pista, [celda_fecha("datos", r, tabla["fecha"], f06)] if tabla.get("fecha") is not None else [],
+                      tabla.get("fecha") is not None)
         for f in d06["filas"]:                              # un equipo sin letra va a la columna del estadístico con esos mismos GB ese día
             if f.get("cam_dudosa") and not f["sonido"] and f["gb"] > 0:
                 cols = [k for k, c in tabla["gb"].items()
@@ -402,6 +470,40 @@ def cruzar(g06, datos07, cfg, excluir_dias=()):
                   "Parece que el día se registró en el estatus de tarjetas pero no en el estadístico.",
                   [celda(d) for d in pendientes], True)
             usadas.update(id(d) for d in pendientes)
+        # 1c) una tarjeta del estatus SIN LLENAR (fila con nombre y sin números) y el estadístico tiene justo lo que le falta a esa
+        #     cámara (o al sonido): CODT DIA 19, «26Y11M10» vacío y el estadístico con 2.09 GB / 44 clips de audio → se llena el estatus
+        por_fila = {}
+        for d in diferencias:
+            if id(d) in usadas or not ec.es_numero(d["actual"]) or float(d["actual"]) <= float(d["esperado"]):
+                continue
+            t_, letra = d["clave"]
+            if t_ in ("gb", "clips"):
+                cand = [v for v in d06.get("vacias_filas", []) if not v["sonido"] and v["cam"] == letra]
+            elif t_ in ("audio", "audio_clips"):
+                cand = [v for v in d06.get("vacias_filas", []) if v["sonido"]]
+            else:
+                continue
+            if len(cand) == 1:
+                por_fila.setdefault(cand[0]["fila"], (cand[0], []))[1].append(d)
+        for _fila, (v, ds) in sorted(por_fila.items()):
+            celdas_v, partes = [], []
+            for d in ds:
+                medida = "gb" if d["clave"][0] in ("gb", "audio") else "clips"
+                falta = float(d["actual"]) - float(d["esperado"])
+                valor = round(falta, 2) if medida == "gb" else int(round(falta))
+                if cols06.get(medida) is None or (medida == "clips" and abs(falta - round(falta)) > 1e-6):
+                    continue
+                celdas_v.append(celda06(v["fila"], cols06[medida], f"{'GB' if medida == 'gb' else 'Clips'} de «{v['nombre']}»", valor,
+                                        "gb" if medida == "gb" else "num"))
+                partes.append(f"{ec._bonito(valor, 'gb' if medida == 'gb' else 'num')} {'GB' if medida == 'gb' else 'clips'}")
+                usadas.add(id(d))
+            if celdas_v:
+                nuevo(num, d07, "tarjeta_sin_llenar", f"{d07['texto']}: «{v['nombre']}» está sin llenar en el estatus",
+                      f"En el estatus de tarjetas la fila de «{v['nombre']}» (fila {v['fila']}) no tiene números; el estadístico tiene "
+                      + " y ".join(partes) + " más que el estatus para " + ("el sonido" if v["sonido"] else f"la cámara {v['cam']}") + ".",
+                      "El estadístico ya tiene esa tarjeta y en el estatus quedó la fila vacía: paso esos números al estatus. "
+                      "La duración no está en el estadístico por tarjeta: complétala tú con el PDF del día.",
+                      celdas_v, True, malas06={v["nombre"]})
         # 2) la duración: si la diferencia es justo la de una tarjeta, se dice cuál
         for d in diferencias:
             if id(d) in usadas:
@@ -449,13 +551,26 @@ def cruzar(g06, datos07, cfg, excluir_dias=()):
                 if len(raras) == 1 and d["tipo"] == "gb" and ec.es_numero(d["actual"]):
                     f, _m = raras[0]
                     debe = f["gb"] + float(d["actual"]) - float(d["esperado"])   # lo que tendría que pesar para cuadrar con el estadístico
+                    if debe > 0 and ritmo and 0.5 <= debe / max(f["seg"] * ritmo, 0.01) <= 2 and cols06.get("gb") is not None:
+                        # el peso que cuadra con el estadístico es normal para su duración: el número que falta (o está mal) es ESE
+                        causa = ("El error está en el estatus de tarjetas: "
+                                 + "; ".join(f"«{x['nombre']}» dice {x['gb']:,.2f} GB para {rs.hms(x['seg'])} de video ({m})" for x, m in raras)
+                                 + f". Con {debe:,.2f} GB (lo que falta para llegar a lo del estadístico) pesa lo normal para su duración "
+                                   f"(unos {ritmo * 60:,.1f} GB por minuto en este proyecto) y el día cuadra exacto: lo corrijo en el estatus.")
+                        nuevo(num, d07, "valor", f"{d07['texto']}: {d['concepto']} no coincide",
+                              f"Estatus de tarjetas: {ec._bonito(d['esperado'], d['tipo'])} · estadístico: {ec._bonito(d['actual'], d['tipo'])}.",
+                              causa, [celda06(f["fila"], cols06["gb"], f"GB de «{f['nombre']}»", round(debe, 2), "gb")], True,
+                              v06=d["esperado"], v07=d["actual"], malas06={f["nombre"]})
+                        continue
                     if debe > 0 and ritmo and 0.5 <= debe / max(f["seg"] * ritmo, 0.01) <= 2:
                         causa += f" Si «{f['nombre']}» pesara {debe:,.2f} GB, el día cuadraría exacto con el estadístico."
             else:
+                tecleo = _error_de_tecleo(d["esperado"], d["actual"], d["tipo"])
                 causa = ("Falta ese dato en el estadístico." if falta and d["esperado"] else
                          ("El estadístico tiene un dato que el estatus de tarjetas no tiene (¿material de otra fuente?). "
                           "No lo borro solo: revísalo." if solo07 else
-                          "Los dos números son distintos; el estatus de tarjetas es la fuente."))
+                          (f"Parece un error al teclear en el estadístico ({tecleo}); el estatus de tarjetas es la fuente." if tecleo else
+                           "Los dos números son distintos; el estatus de tarjetas es la fuente.")))
             nuevo(num, d07, "valor", f"{d07['texto']}: {d['concepto']} no coincide",
                   f"Estatus de tarjetas: {ec._bonito(d['esperado'], d['tipo'])} · estadístico: {ec._bonito(d['actual'], d['tipo'])}.",
                   causa, [celda(d)], not solo07 and not raras, v06=d["esperado"], v07=d["actual"],
@@ -487,6 +602,192 @@ def cruzar(g06, datos07, cfg, excluir_dias=()):
     return {"hallazgos": hallazgos, "comparados": comparados, "avisos": avisos, "redondeos": redondeos}
 
 
+def _error_de_tecleo(bueno, malo, tipo):
+    """«un número cambiado: 212.31 → 213.31» / «dos números al revés: 81.69 → 81.96», o "" si no parece un error al teclear."""
+    if tipo not in ("gb", "num") or not ec.es_numero(bueno) or not ec.es_numero(malo):
+        return ""
+    fmt = "{:.2f}" if tipo == "gb" else "{:.0f}"
+    a_, b_ = fmt.format(float(bueno)), fmt.format(float(malo))
+    if len(a_) != len(b_) or a_ == b_:
+        return ""
+    dif = [i for i, (x, y) in enumerate(zip(a_, b_)) if x != y]
+    if len(dif) == 1:
+        return f"un número cambiado: {a_} → {b_}"
+    if len(dif) == 2 and dif[1] == dif[0] + 1 and a_[dif[0]] == b_[dif[1]] and a_[dif[1]] == b_[dif[0]]:
+        return f"dos números al revés: {a_} → {b_}"
+    return ""
+
+
+def _fecha_o_none(y, m, d):
+    try:
+        return date(y, m, d)
+    except ValueError:
+        return None
+
+
+def _lecturas_de_fecha(v):
+    """La fecha de una celda y, si es posible, la misma con día y mes al revés."""
+    f = rs._fecha(v) if v not in ("", None) else None
+    if not f:
+        return set()
+    otra = _fecha_o_none(f.year, f.day, f.month) if f.day <= 12 else None
+    return {f} | ({otra} if otra else set())
+
+
+def _texto_de_fecha(v):
+    f = rs._fecha(v) if v not in ("", None) else None
+    return f"{f:%d/%m/%Y}" if f else (str(v) if v not in ("", None) else "vacía")
+
+
+def _fecha_como(antes, fecha):
+    """La fecha escrita IGUAL que la que había en la celda (serial, 20240317, 17032024, «17/03/2024», «2024-03-17»…)."""
+    if ec.es_numero(antes):
+        r = ec._formato_de_numero(antes)
+        return ec.valor_de_fecha(fecha, r[0] if r else "serial")
+    if isinstance(antes, str):
+        m = re.fullmatch(r"\s*(\d{1,2})([/.-])(\d{1,2})\2(\d{4})\s*", antes)
+        if m:
+            ceros = len(m[1]) == 2 or len(m[3]) == 2
+            a, b = (fecha.month, fecha.day) if ec.ORDEN_FECHA["texto"] == "mdy" else (fecha.day, fecha.month)
+            return (f"{a:02d}{m[2]}{b:02d}" if ceros else f"{a}{m[2]}{b}") + f"{m[2]}{fecha.year}"
+        m = re.fullmatch(r"\s*(\d{4})([/.-])(\d{1,2})\2(\d{1,2})\s*", antes)
+        if m:
+            return f"{fecha.year}{m[2]}{fecha.month:02d}{m[2]}{fecha.day:02d}"
+        if re.fullmatch(r"\s*\d{8}\s*", antes):
+            return f"{fecha.year}{fecha.month:02d}{fecha.day:02d}"
+    return ec.serial_de_fecha(fecha)
+
+
+def _proponer_dia_faltante(datos07, tabla, d06, excluir=()):
+    """El día del estatus que no tiene fila en el estadístico, armado como al registrarlo con el PDF. (propuesta, motivo si no)."""
+    num, fecha = d06["num"], d06.get("fecha")
+    otra = next((d for d in tabla["dias"] if d["num"] == num and (d.get("suf") or "") == (d06.get("suf") or "")), None) \
+        or next((d for d in tabla["dias"] if fecha and d.get("fecha") == fecha), None)
+    if otra is not None:                     # algo con ese número o esa fecha ya existe: no se agrega a ciegas una fila repetida
+        return None, (f"Ya hay una fila «{otra['texto']}» con ese número o esa fecha; revisa cuál de las dos hojas tiene el número o la fecha "
+                      "equivocados.")
+    unidades = {d.get("unidad") for d in tabla["dias"]}
+    dedicado = len(unidades) <= 1
+    unidad = next(iter(unidades)) if dedicado and unidades and next(iter(unidades)) not in (None, "") else 1
+    reporte = {"dia": f"D{num:03d}", "fecha": datetime.combine(fecha, datetime.min.time()) if fecha else None,
+               "unidad": unidad if isinstance(unidad, int) else 1}
+    try:
+        prop = ec.proponer(datos07, None, d06["filas"], reporte, lambda f: f["sonido"], dedicado=dedicado)
+    except Exception as e:                   # (ErrorRegistro u hoja rara) → se avisa como antes, sin corrección
+        return None, str(e)
+    if not prop.get("cambios"):
+        return None, ""
+    return prop, ""
+
+
+def donde_corrige(h):
+    """'el estatus de tarjetas', 'el estadístico' o 'las dos hojas' (para los botones y las preguntas)."""
+    hojas = {c.get("hoja", "datos") for c in h.get("celdas", [])}
+    if hojas == {"estatus"}:
+        return "el estatus de tarjetas"
+    return "las dos hojas" if "estatus" in hojas else "el estadístico"
+
+
+def donde_corto(h):
+    return {"el estatus de tarjetas": "el estatus"}.get(donde_corrige(h), donde_corrige(h))
+
+
+def texto_cambios(h, maximo=8):
+    """«estatus H145  GB de «A063»: vacía → 44.37   ·   E21  FECHA: …» para mostrar debajo de cada hallazgo."""
+    cs = h.get("celdas", [])
+    txt = "   ·   ".join(f"{'estatus ' if c.get('hoja') == 'estatus' else 'Resumen ' if c.get('hoja') == 'resumen' else ''}{c['celda']}  "
+                           f"{c['concepto']}: {c['antes_txt']} → {c['nuevo_txt']}" for c in cs[:maximo])
+    if len(cs) > maximo:
+        txt += f"   ·   (y {len(cs) - maximo} más)"
+    if h.get("propuesta"):
+        p_ = h["propuesta"]
+        txt = (f"fila nueva {p_['fila'] + 1} «{p_['texto_dia']}»: " if p_.get("insertar_fila") else f"fila {p_['fila'] + 1} «{p_['texto_dia']}»: ") + txt
+    return f"Se cambiaría en {donde_corrige(h)}:  " + txt
+
+
+def texto_confirmar(hall):
+    """(título, texto) de la pregunta «¿Hago N correcciones…?»."""
+    hojas = {donde_corrige(h) for h in hall}
+    donde = hojas.pop() if len(hojas) == 1 else "las dos hojas"
+    lineas = []
+    for h in hall:
+        cs = h["celdas"]
+        lugar = {"estatus": "estatus ", "datos": "", "resumen": "Resumen "}
+        txt = ", ".join(f"{lugar.get(c.get('hoja', 'datos'), '')}{c['celda']} {c['antes_txt']} → {c['nuevo_txt']}" for c in cs[:6])
+        lineas.append(f"• {h['texto_dia']}: " + (f"agregar la fila del día ({len(cs)} celdas)" if h.get("propuesta") else
+                                                 txt + ("…" if len(cs) > 6 else "")))
+    return (f"Corregir {donde}",
+            f"¿Hago {len(hall)} corrección(es) en {donde}?\n\n" + "\n".join(lineas)
+            + "\n\nAntes de escribir vuelvo a leer esas celdas; si alguien las cambió, no toco nada.")
+
+
+def aplicar_correcciones(servicio, rg, est, hoja06, hallazgos):
+    """Escribe las correcciones aprobadas: celdas del estadístico (`est`) y del estatus de tarjetas (`hoja06` = cfg["hoja"],
+    la pestaña sale de `h["pestana06"]`), y los días que faltaban en el estadístico (`h["propuesta"]`). Antes relee cada celda: si
+    alguien la cambió, no escribe NADA. Después lee de vuelta. `rg` = registro_google (o el del celular). Devuelve [(estado, texto)]."""
+    sid07 = rg.id_de_enlace(est["enlace"])
+    sid06 = rg.id_de_enlace(hoja06["enlace"]) if hoja06 and hoja06.get("enlace") else None
+
+    def destino(h, c):
+        if c.get("hoja") == "estatus":
+            if not sid06:
+                raise ec.ErrorRegistro("No tengo conectado el estatus de tarjetas para corregirlo.")
+            return sid06, h.get("pestana06") or hoja06.get("pestana")
+        return sid07, (est.get("resumen") if c.get("hoja") == "resumen" else est["datos"])
+
+    def mismo(a_, b, tipo):
+        if tipo == "hora":
+            return ec.es_numero(a_) and ec.es_numero(b) and abs(float(a_) - float(b)) < 1.0 / 86400
+        if tipo == "fecha":
+            return (a_ in ("", None) and b in ("", None)) or ec.igual(a_, b) or str(a_).strip() == str(b).strip()
+        return ec.igual(a_ if a_ not in (None, "") else 0.0, b if b not in (None, "") else 0.0)
+
+    simples = [h for h in hallazgos if not h.get("propuesta")]
+    pares = [(h, c) + destino(h, c) for h in simples for c in h["celdas"]]
+    por_sid = {}
+    for _h, c, sid, pest in pares:
+        por_sid.setdefault(sid, []).append((pest, c["celda"]))
+    actuales = {sid: rg.leer_celdas(servicio, sid, claves) for sid, claves in por_sid.items()}
+    if any(not mismo(actuales[sid].get((pest, c["celda"]), ""), c.get("antes_raw", c.get("antes")), c["tipo"]) for _h, c, sid, pest in pares):
+        raise ec.ErrorRegistro("Las hojas cambiaron mientras tanto (alguien editó esas celdas). No corregí nada: pulsa «Actualizar» y vuelve a revisar.")
+    for h in hallazgos:                      # los días que faltaban: se comprueba que su lugar siga igual antes de escribir nada
+        p_ = h.get("propuesta")
+        if p_:
+            mirar = [((est["datos"], c["celda_antes"]), c) for c in p_["cambios"] if c.get("celda_antes")]
+            act = rg.leer_celdas(servicio, sid07, [k for k, _c in mirar]) if mirar else {}
+            if any(not ec.igual(act.get(k, ""), c["antes"]) for k, c in mirar):
+                raise ec.ErrorRegistro("El estadístico cambió mientras tanto. No corregí nada: pulsa «Actualizar» y vuelve a revisar.")
+    for sid in por_sid:
+        rg.escribir_celdas(servicio, sid, [(pest, c["celda"], c["nuevo"]) for _h, c, s_, pest in pares if s_ == sid])
+    leidos = {sid: rg.leer_celdas(servicio, sid, claves) for sid, claves in por_sid.items()}
+    salida = []
+    for h in simples:
+        bien = all(mismo(leidos[sid].get((pest, c["celda"]), ""), c["nuevo"], c["tipo"]) for h2, c, sid, pest in pares if h2 is h)
+        donde = donde_corrige(h)
+        salida.append(("ok", f"Corregido {h['texto_dia']} en {donde}: ahora las dos hojas coinciden.") if bien else
+                      ("aviso", f"Corregí {h['texto_dia']} en {donde}, pero al leerlo de vuelta no quedó como esperaba: revisa esa fila."))
+    for h in hallazgos:
+        p_ = h.get("propuesta")
+        if not p_:
+            continue
+        pest = {"datos": est["datos"], "resumen": est.get("resumen", "")}
+        if p_.get("estructura"):
+            rg.aplicar_estructura(servicio, sid07, pest, p_["estructura"])
+        rg.escribir_celdas(servicio, sid07, [(pest[c["hoja"]], c["celda"], c["nuevo"]) for c in p_["cambios"]])
+        try:
+            claves = [(pest[c["hoja"]], c["celda"]) for c in p_["cambios"]]
+            tot = p_.get("lectura_total")
+            lei = rg.leer_celdas(servicio, sid07, claves + ([(est["datos"], tot)] if tot else []))
+            res = ec.comprobar(p_, {(c["hoja"], c["celda"]): lei.get(k) for k, c in zip(claves, p_["cambios"])},
+                               lei.get((est["datos"], tot)) if tot else None)
+            mal = [t for e_, t in res if e_ != "ok"]
+            salida.append(("aviso", f"Agregué {h['texto_dia']} al estadístico, pero revisa: " + " ".join(mal)) if mal else
+                          ("ok", f"Agregado {h['texto_dia']} al estadístico («{p_['texto_dia']}», fila {p_['fila'] + 1}) y comprobado."))
+        except Exception as e:
+            salida.append(("aviso", f"Agregué {h['texto_dia']} al estadístico, pero no pude comprobarlo: {e}"))
+    return salida
+
+
 def unir_cruces(partes):
     """Junta las revisiones de varias unidades (cada una con su estadístico) en una sola. `partes`: [(etiqueta, índice_del_estadístico, cruce)].
     Cada hallazgo conserva `est` (cuál estadístico se corregiría) y, si hay varias unidades, lleva la unidad delante del día."""
@@ -494,6 +795,7 @@ def unir_cruces(partes):
         etiqueta, j, cr = partes[0]
         for h in cr["hallazgos"] + cr.get("redondeos", []):
             h["est"] = j
+            h["pestana06"] = etiqueta                  # (las correcciones del estatus van a ESTA pestaña)
         for k, h in enumerate(cr.get("redondeos", []), start=1):
             h["id"] = 100000 + k                       # los ids de redondeo no chocan con los de las incongruencias
         return cr
@@ -502,7 +804,8 @@ def unir_cruces(partes):
         comparados += cr["comparados"]
         avisos += [f"{etiqueta}: {a}" for a in cr["avisos"]]
         for h in cr["hallazgos"]:
-            hallazgos.append(dict(h, id=len(hallazgos) + 1, est=j, unidad=etiqueta, texto_dia=f"{etiqueta} · {h['texto_dia']}"))
+            hallazgos.append(dict(h, id=len(hallazgos) + 1, est=j, unidad=etiqueta, pestana06=etiqueta,
+                                  texto_dia=f"{etiqueta} · {h['texto_dia']}"))
         for h in cr.get("redondeos", []):
             redondeos.append(dict(h, id=100000 + len(redondeos) + 1, est=j, unidad=etiqueta, texto_dia=f"{etiqueta} · {h['texto_dia']}",
                                   titulo=f"{etiqueta} · {h['titulo']}"))

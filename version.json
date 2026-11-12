@@ -1,31 +1,31 @@
 {
- "version": "1.1.2",
- "fecha": "2026-11-10",
+ "version": "1.1.3",
+ "fecha": "2026-11-12",
  "novedades": [
-  "Videos de instalación grabados con las pantallas reales del Mac, iPhone y iPad",
-  "Guía de instalación y manual de uso con capturas reales (también dentro del instalador)",
-  "Explicación correcta de los avisos de seguridad del Mac («Listo» y «Abrir de todos modos»)"
+  "Celular instalado: ya se puede entrar con cualquier correo de Google",
+  "Resumen: ahora corrige también el estatus de tarjetas (tarjeta sin peso, fila sin llenar, fecha) y agrega al estadístico los días que faltan",
+  "Lectura más precisa de las hojas (sonido, fechas, cámaras nuevas, días repetidos por locación)"
  ],
  "mac_arm64": {
   "archivo": "Estadistico_FilmFlow_Mac.zip",
-  "url": "https://github.com/FilmFlowEstadistico/filmflowestadistico.github.io/releases/download/v1.1.2/Estadistico_FilmFlow_Mac.zip",
-  "tamano": 56947482,
-  "sha256": "6540bf3a6a0029abf63d261693e216234a2f23b70bb937ec59c7700044b15f71"
+  "url": "https://github.com/FilmFlowEstadistico/filmflowestadistico.github.io/releases/download/v1.1.3/Estadistico_FilmFlow_Mac.zip",
+  "tamano": 56964017,
+  "sha256": "a6e5193cdced7cb87a99c4715d4b4d0b45f9dac0de69a20f3ca304030dd95fdc"
  },
  "dmg_arm64": {
   "archivo": "Estadistico_FilmFlow.dmg",
-  "url": "https://github.com/FilmFlowEstadistico/filmflowestadistico.github.io/releases/download/v1.1.2/Estadistico_FilmFlow.dmg",
-  "tamano": 78877255
+  "url": "https://github.com/FilmFlowEstadistico/filmflowestadistico.github.io/releases/download/v1.1.3/Estadistico_FilmFlow.dmg",
+  "tamano": 79658762
  },
  "mac_intel": {
   "archivo": "Estadistico_FilmFlow_Mac_Intel.zip",
-  "url": "https://github.com/FilmFlowEstadistico/filmflowestadistico.github.io/releases/download/v1.1.2/Estadistico_FilmFlow_Mac_Intel.zip",
-  "tamano": 59052010,
-  "sha256": "2240b42ef2430dd86f5d5eeded2cc3fce8ffe11aec1475300eb76f88ae6b1c59"
+  "url": "https://github.com/FilmFlowEstadistico/filmflowestadistico.github.io/releases/download/v1.1.3/Estadistico_FilmFlow_Mac_Intel.zip",
+  "tamano": 59071138,
+  "sha256": "56e5772ae958d17154680ed977c5399b764aa0cb7624a1f67daf15df5817d6d4"
  },
  "dmg_intel": {
   "archivo": "Estadistico_FilmFlow_Intel.dmg",
-  "url": "https://github.com/FilmFlowEstadistico/filmflowestadistico.github.io/releases/download/v1.1.2/Estadistico_FilmFlow_Intel.dmg",
-  "tamano": 82733608
+  "url": "https://github.com/FilmFlowEstadistico/filmflowestadistico.github.io/releases/download/v1.1.3/Estadistico_FilmFlow_Intel.dmg",
+  "tamano": 82750989
  }
 }

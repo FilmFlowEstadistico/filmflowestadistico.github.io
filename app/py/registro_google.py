@@ -586,9 +586,16 @@ def aplicar_estructura(servicio, sid, pestanas, est):
     1) inserta columnas (cámara nueva) y filas (su fila en el Resumen General, o el día que no tenía fila), con el formato de al lado;
     2) copia lo que hace falta (la fórmula de la fila TOTAL, la fila modelo del Resumen) y las fórmulas de la fila de arriba en un día
        insertado (TOTAL (GB)…); 3) escribe títulos, ceros y fórmulas; 4) si una cámara quedó al final del grupo, amplía la suma de
-       «TOTAL (GB)» de cada día. `pestanas` = {'datos': nombre, 'resumen': nombre}."""
-    if not est or not est.get("ops"):
+       «TOTAL (GB)» de cada día (también la del día que se escribe si no suma una cámara con material: AAZ =SUM(E5:L5)+AA5 sin la CAM J).
+    `pestanas` = {'datos': nombre, 'resumen': nombre}."""
+    if not est:
         return
+    if est.get("ops"):
+        _aplicar_forma(servicio, sid, pestanas, est)
+    _ampliar_totales(servicio, sid, pestanas, est)
+
+
+def _aplicar_forma(servicio, sid, pestanas, est):
     try:                                                   # una sola consulta para los id de las pestañas (antes una por pestaña)
         meta = servicio.spreadsheets().get(spreadsheetId=sid, fields="sheets.properties(sheetId,title)").execute()
     except Exception as e:
@@ -633,6 +640,9 @@ def aplicar_estructura(servicio, sid, pestanas, est):
     if pestanas.get("resumen"):
         _empezar_sumas_en(servicio, sid, pestanas["resumen"], est.get("inicio_resumen", []))
     _sumas_con_dia_nuevo(servicio, sid, pestanas["datos"], est.get("sumas_total", []))
+
+
+def _ampliar_totales(servicio, sid, pestanas, est):
     for a in est.get("ampliar", []):                       # que «TOTAL (GB)» de cada día sume también la cámara nueva
         letra = _letra_col(a["col_total"])
         filas_ = sorted(set(a["filas"]) | {r if r >= 0 else -r - 1 for r in est.get("formulas_de_arriba", [])})
