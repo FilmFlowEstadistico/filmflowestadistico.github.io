@@ -195,6 +195,10 @@ def guardar_config(cfg, ruta=RUTA_CONFIG):
     correo = cfg["correo"] if "correo" in cfg else previo.get("correo")
     if correo:
         nuevo["correo"] = correo                    # cómo se arma el correo de este proyecto (pestaña «Correo»)
+    for k in ("equipo", "ficha", "origen"):         # encargados del proyecto y de dónde vino (sync_core: «Equipo del proyecto»)
+        v = cfg[k] if k in cfg else previo.get(k)
+        if v:
+            nuevo[k] = v
     data["proyectos"][nombre] = nuevo
     escribir_archivo(data, ruta)
 

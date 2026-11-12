@@ -2028,6 +2028,7 @@ def pagina_ajustes(p=None):
     out = [f'<p class="intro">Solo del proyecto «{esc(cfg["_proyecto"])}»: sus hojas de Google y sus rollos. Se configura una sola vez; cambia lo que quieras cuando quieras. '
            'Lo de la aplicación (cuenta, apariencia, descanso) está en la rueda ⚙ de arriba.</p>',
            H.grupo("Hojas de Google"), html_hojas_conectadas(cfg, editar=True),
+           H.grupo("Equipo del proyecto"), html_equipo(cfg),
            H.grupo("Rollos"), _rollos_html(cfg),
            H.grupo("Proyecto")]
     cp = (f'<p class="sub">Tienes {_n(len(proyectos), "proyecto", "proyectos")}. Con la sincronización, los mismos aparecen en tu Mac.</p>'
@@ -2035,6 +2036,118 @@ def pagina_ajustes(p=None):
           + ('<div class="barra-mini llena">' + H.boton("Eliminar este proyecto", "eliminar_proyecto", "peligro") + "</div>" if len(proyectos) > 1 else ""))
     out.append(H.tarjeta(cp))
     return {"pagina": "ajustes", "html": "".join(out)}
+
+
+# ---------------------------------------------------------------- Equipo del proyecto (igual que en el Mac)
+def html_equipo(cfg):
+    origen = cfg.get("origen") or {}
+    if origen:
+        return H.tarjeta(f'<p class="sub">Este proyecto te lo compartió <b>{esc(origen.get("de") or "su encargado")}</b>: ya tienes acceso a sus hojas '
+                         'con tu correo. Las hojas y los rollos los maneja esa persona; si cambian, te llegan solos.</p>')
+    s = ('<p class="sub">Las personas que trabajan en este proyecto. Al agregarlas, la app les da acceso a TODAS las hojas conectadas '
+         '(estatus y estadísticos) y, cuando entren a la app con su propio correo, el proyecto les aparece solo. Puedes agregar a varias.</p>')
+    equipo = cfg.get("equipo") or []
+    if not equipo:
+        s += '<p class="nota">Todavía no hay nadie en el equipo.</p>'
+    for x in equipo:
+        est = x.get("estado")
+        chip = H.chip("✔ con acceso", "exito") if est == "ok" else H.chip("revisar" if est else "sin acceso todavía", "aviso" if est else "info")
+        s += (f'<div class="persona"><div class="persona-txt"><b>{esc(x.get("nombre") or x["correo"])}</b> {chip}'
+              f'<p class="sub">{esc(x["correo"])} · {"puede editar" if x.get("puede", "editar") == "editar" else "solo ver"}</p>'
+              + (f'<p class="nota aviso-txt">⚠ {esc(est)}</p>' if est and est != "ok" else "")
+              + f'</div><button class="btn mini" {a("equipo_quitar", correo=x["correo"])} title="Quitarle el acceso a las hojas de este proyecto y sacarlo del equipo.">Quitar</button></div>')
+    f = E.get("form_equipo")
+    if f is not None:
+        s += (f'<form class="formulario" {a("equipo_guardar")} data-ev="submit"><h3>Agregar persona al equipo</h3>'
+              + (H.aviso("error", f["error"]) if f.get("error") else "")
+              + f'<label>Nombre<input name="nombre" value="{esc(f.get("nombre", ""))}" autocomplete="name"></label>'
+              + f'<label>Correo de Google (el que usa para entrar a la app)<input name="correo" type="email" value="{esc(f.get("correo", ""))}" autocomplete="email" autocapitalize="none"></label>'
+              + '<div class="radios">' + "".join(
+                  f'<label class="radio"><input type="radio" name="puede" value="{k}" {"checked" if f.get("puede", "editar") == k else ""}><span>{t}</span></label>'
+                  for k, t in (("editar", "Puede editar (registrar días y corregir)"), ("ver", "Solo ver (Resumen y reportes)"))) + "</div>"
+              + '<div class="barra-mini llena"><button class="btn acento" type="submit" title="Agregar a esta persona y compartirle las hojas del proyecto.">Dar acceso</button>'
+              + H.boton("Cancelar", "equipo_cancelar", "") + "</div></form>")
+    else:
+        s += ('<div class="barra-mini llena">'
+              + f'<button class="btn acento" {a("equipo_agregar")} title="Agregar a un data manager o encargado: nombre, correo y si puede editar o solo ver.">+ Agregar persona</button>'
+              + (f'<button class="btn" {a("equipo_dar_acceso", correos=[x["correo"] for x in equipo])} title="Compartir otra vez todas las hojas con todo el equipo (por ejemplo, después de conectar un estadístico nuevo).">Volver a dar acceso</button>' if equipo else "")
+              + "</div>")
+    return H.tarjeta(s, clase="equipo")
+
+
+def equipo_agregar(p):
+    if not sc.hojas_del_proyecto(rc.cargar_config()):
+        return {"toast": "Primero conecta las hojas del proyecto (estatus de tarjetas y estadístico)."}
+    E["form_equipo"] = {}
+    return {"ir": "ajustes", "recargar": True}
+
+
+def equipo_cancelar(p):
+    E["form_equipo"] = None
+    return {"ir": "ajustes", "recargar": True}
+
+
+def equipo_guardar(p):
+    correo = str(p.get("correo", "")).strip().lower()
+    datos = {"nombre": str(p.get("nombre", "")).strip(), "correo": correo, "puede": "ver" if p.get("puede") == "ver" else "editar"}
+    if not sc.correo_valido(correo):
+        E["form_equipo"] = dict(datos, error="Escribe un correo válido (por ejemplo nombre@gmail.com).")
+        return {"ir": "ajustes", "recargar": True}
+    cfg = rc.cargar_config()
+    cfg["equipo"] = [y for y in (cfg.get("equipo") or []) if y["correo"].lower() != correo] + [datos]
+    rc.guardar_config(cfg)
+    E["form_equipo"] = None
+    return equipo_dar_acceso({"correos": [correo]})
+
+
+def _permiso_compartir(accion, p, error):
+    resp = pagina_ajustes()
+    resp["pedir_permiso"] = {"texto": str(error) + "\n\nToca «Dar permiso»: vas a Google, eliges la cuenta que tiene las hojas (la de la "
+                                                  "empresa) y dejas MARCADA la casilla de Google Drive. Luego vuelves aquí solo.",
+                             "scope": sc.PERMISO_COMPARTIR, "luego": {"accion": accion, "p": p}}
+    return resp
+
+
+def equipo_dar_acceso(p):
+    cfg = rc.cargar_config()
+    pr = {k: v for k, v in cfg.items() if not k.startswith("_")}
+    try:
+        res = sc.dar_acceso(web_shim.http_directo, cfg["_proyecto"], pr, p.get("correos") or [], web_shim.ESTADO.get("correo") or "")
+    except sc.FaltaPermisoCompartir as e:
+        return _permiso_compartir("equipo_dar_acceso", {"correos": p.get("correos") or []}, e)
+    except ErrorRegistro as e:
+        res = [("aviso", str(e))]
+    finally:
+        cfg2 = rc.cargar_config()
+        if cfg2["_proyecto"] == cfg["_proyecto"]:
+            cfg2["equipo"], cfg2["ficha"] = pr.get("equipo") or [], pr.get("ficha")
+            rc.guardar_config(cfg2)
+    resp = pagina_ajustes()
+    resp["confirmar"] = {"titulo": "Equipo del proyecto", "texto": "\n\n".join(t for _e, t in res), "accion": "pagina", "p": {"nombre": "ajustes"},
+                         "boton": "Entendido"}
+    return resp
+
+
+def equipo_quitar(p):
+    resp = pagina_ajustes()
+    resp["confirmar"] = {"titulo": "Quitar del equipo", "boton": "Quitar", "accion": "equipo_quitar_ok", "p": {"correo": p["correo"]},
+                         "texto": f"¿Le quito a {p['correo']} el acceso a las hojas de este proyecto?\n\nEl proyecto desaparece de su app "
+                                  "la próxima vez que se sincronice. Tus hojas no se tocan."}
+    return resp
+
+
+def equipo_quitar_ok(p):
+    cfg = rc.cargar_config()
+    pr = {k: v for k, v in cfg.items() if not k.startswith("_")}
+    try:
+        res = sc.quitar_acceso(web_shim.http_directo, pr, p["correo"])
+    except sc.FaltaPermisoCompartir as e:
+        return _permiso_compartir("equipo_quitar_ok", {"correo": p["correo"]}, e)
+    except ErrorRegistro as e:
+        return {"toast": str(e)}
+    cfg["equipo"] = pr.get("equipo") or []
+    rc.guardar_config(cfg)
+    return {"ir": "ajustes", "recargar": True, "toast": res[0][1]}
 
 
 def pagina_app(p=None):
@@ -2415,7 +2528,7 @@ ACCIONES = {k: v for k, v in globals().items() if callable(v) and not k.startswi
     "mover_rollo", "elegir_proyecto", "renombrar_pedir", "renombrar_ok", "nuevo_pedir", "nuevo_ok", "nuevo_conectar", "eliminar_proyecto", "eliminar_ok",
     "correo_pdf", "correo_usar_registro", "correo_prefijo", "cuenta", "sincronizar", "sync_enlace", "nuevo_dia",
     "reporte_abrir", "reporte_cerrar", "reporte_tipo", "reporte_tocar", "reporte_mes", "reporte_rango", "reporte_unidad", "reporte_modo", "reporte_contenido",
-    "reporte_crear"}}
+    "reporte_crear", "equipo_agregar", "equipo_cancelar", "equipo_guardar", "equipo_dar_acceso", "equipo_quitar", "equipo_quitar_ok"}}
 
 
 def _firma_config():

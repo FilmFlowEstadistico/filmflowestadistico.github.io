@@ -38,6 +38,12 @@ p{margin:6px 0}
 .sub{color:var(--texto2);font-size:14.5px}.nota{color:var(--texto2);font-size:13px}
 .pie{margin:14px 4px 26px}
 hr{border:0;border-top:1px solid var(--separador);margin:14px 0}
+/* Equipo del proyecto (Ajustes) */
+.equipo .persona{display:flex;align-items:flex-start;gap:12px;padding:12px 0;border-top:1px solid var(--separador)}
+.equipo .persona:first-of-type{border-top:0}
+.equipo .persona-txt{flex:1;min-width:0}.equipo .persona-txt b{margin-right:6px;overflow-wrap:anywhere}
+.equipo .persona-txt .sub{margin:2px 0 0;overflow-wrap:anywhere}
+.equipo .formulario{margin-top:12px}
 
 /* ---------- tarjetas, chips, avisos ---------- */
 .tarjeta{background:var(--superficie);border:1px solid var(--separador);border-radius:var(--r-tj);padding:16px;margin:0 0 14px}

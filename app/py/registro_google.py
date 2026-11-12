@@ -25,6 +25,7 @@ PERMISO_DRIVE = "https://www.googleapis.com/auth/drive.metadata.readonly"    # s
 PERMISOS = ["https://www.googleapis.com/auth/spreadsheets", PERMISO_DRIVE, "openid",
             "https://www.googleapis.com/auth/userinfo.email"]
 CORREO = "https://www.googleapis.com/auth/userinfo.email"
+PERMISO_COMPARTIR = "https://www.googleapis.com/auth/drive"   # solo para «Equipo del proyecto» (dar acceso a las hojas); se pide al usarlo
 FALTA_LLAVE = ("Falta la «llave» de Google (el archivo credenciales.json). "
                "Pulsa «Conectar con Google» y elige el archivo cuando te lo pida.")
 NO_CONECTADO = ("Todavía no has conectado tu cuenta de Google (o la sesión venció). "
@@ -163,14 +164,14 @@ def estado_cuenta(carpeta=CARPETA):
     return {"conectado": True, "correo": correo, "motivo": ""}
 
 
-def conectar_cuenta(carpeta=CARPETA):
-    """Abre el navegador para que la persona elija su cuenta de Google y dé permiso."""
+def conectar_cuenta(carpeta=CARPETA, extra=()):
+    """Abre el navegador para que la persona elija su cuenta de Google y dé permiso. `extra`: permisos de más (p. ej. compartir)."""
     g = _google()
     llave = carpeta / "credenciales.json"
     if not llave.exists():
         raise ErrorRegistro(FALTA_LLAVE)
     try:
-        flujo = g.InstalledAppFlow.from_client_secrets_file(str(llave), PERMISOS)
+        flujo = g.InstalledAppFlow.from_client_secrets_file(str(llave), PERMISOS + [x for x in extra if x not in PERMISOS])
         argumentos = dict(port=0, prompt="select_account",
                           success_message="Listo, ya puedes volver a la aplicación.")
         try:
@@ -227,6 +228,13 @@ def _http_seguro(creds):
             raise ultimo
 
     return _Http(creds, http=httplib2.Http(timeout=20))
+
+
+def tiene_permiso(permiso, carpeta=CARPETA):
+    try:
+        return permiso in (json.loads((carpeta / "token.json").read_text()).get("scopes") or [])
+    except Exception:
+        return False
 
 
 def tiene_permiso_drive(carpeta=CARPETA):

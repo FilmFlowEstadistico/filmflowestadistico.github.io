@@ -506,6 +506,13 @@ async function mostrar(r, nuevaPagina) {
     const c = r.confirmar;
     if (await modal({ titulo: c.titulo, texto: c.texto, si: c.boton || "Aceptar" })) mostrar(await api(c.accion, c.p || {}));
   }
+  if (r.pedir_permiso) {             // «Equipo del proyecto»: compartir hojas pide a Google un permiso más (se va a Google y se vuelve solo)
+    const c = r.pedir_permiso;
+    if (await modal({ titulo: "Falta un permiso de Google", texto: c.texto, si: "Dar permiso" })) {
+      guardar("ff-pendiente", JSON.stringify(c.luego || null));
+      irAGoogle(PERMISOS + " " + c.scope);
+    }
+  }
   if (r.pedir) {
     const c = r.pedir, v = await modal({ titulo: c.titulo, texto: c.texto, input: true, valor: c.valor, si: c.boton || "Guardar" });
     if (v !== null) mostrar(await api(c.accion, { valor: v }));
@@ -905,6 +912,10 @@ function pintarVersion() {
   try { await motorListo; } catch (e) { await ofrecerReparar(e); return; }
   ocupado(false); if (conCache) progreso(false);
   if (regreso === "ok") toast("Cuenta conectada" + (sesion.correo ? ": " + sesion.correo : ""));
+  let pendiente = null;                                             // lo que se iba a hacer antes de ir a Google por el permiso
+  try { pendiente = JSON.parse(leer("ff-pendiente") || "null"); } catch (e) {}
+  if (pendiente) guardar("ff-pendiente", "null");
+  if (regreso !== "ok") pendiente = null;
   if (regreso === "error") await modal({ titulo: "No se pudo conectar", texto: textoErrorConexion(), si: "Entendido", no: "" });
   if (almacenFalla || sinGuardar) avisoPrivado();
   if ("serviceWorker" in navigator && !PRUEBA) activarActualizaciones();
@@ -913,6 +924,7 @@ function pintarVersion() {
   try { const c = await llamar("cuenta", {}); if (c && c.proyectos) actualizarProyectos(c.proyectos); } catch (e) {}
   if (sinSesion && !leer("ff-correo")) return;       // sigue en la pantalla de inicio hasta que conecte
   if (tokenVigente() && !conCache) await sincronizar(false);   // sin nada guardado: primero traer los proyectos y leer una sola vez
-  await ir(inicial, conCache);
+  await ir(pendiente ? "ajustes" : inicial, conCache && !pendiente);
+  if (pendiente && pendiente.accion) mostrar(await api(pendiente.accion, pendiente.p || {}));
   if (tokenVigente() && conCache) sincronizar(false);
 })();
