@@ -2055,6 +2055,9 @@ def html_equipo(cfg):
         s += (f'<div class="persona"><div class="persona-txt"><b>{esc(x.get("nombre") or x["correo"])}</b> {chip}'
               f'<p class="sub">{esc(x["correo"])} · {"puede editar" if x.get("puede", "editar") == "editar" else "solo ver"}</p>'
               + (f'<p class="nota aviso-txt">⚠ {esc(est)}</p>' if est and est != "ok" else "")
+              + (f'<button class="btn mini" data-js="invitar" data-enlace="{esc(sc.enlace_invitacion(cfg["ficha"]))}" data-correo="{esc(x["correo"])}" '
+                 f'data-proyecto="{esc(cfg.get("_proyecto", ""))}" title="Mandarle el enlace para tener el proyecto en su app (WhatsApp, correo…).">Enviar invitación</button>'
+                 if est == "ok" and cfg.get("ficha") else "")
               + f'</div><button class="btn mini" {a("equipo_quitar", correo=x["correo"])} title="Quitarle el acceso a las hojas de este proyecto y sacarlo del equipo.">Quitar</button></div>')
     f = E.get("form_equipo")
     if f is not None:
@@ -2073,6 +2076,28 @@ def html_equipo(cfg):
               + (f'<button class="btn" {a("equipo_dar_acceso", correos=[x["correo"] for x in equipo])} title="Compartir otra vez todas las hojas con todo el equipo (por ejemplo, después de conectar un estadístico nuevo).">Volver a dar acceso</button>' if equipo else "")
               + "</div>")
     return H.tarjeta(s, clase="equipo")
+
+
+def unirse(p):
+    """Se abrió un enlace de invitación (…/app/?unirse=ID): se anota la ficha y se sincroniza para traer el proyecto."""
+    fid = sc.id_de_invitacion(str(p.get("ficha") or p.get("valor") or ""))
+    if not fid:
+        return {"toast": "Ese enlace no es una invitación de Estadístico FilmFlow."}
+    sc.unirse(fid)
+    r = _sincronizar(True)
+    nuevos = (r.get("sync") or {}).get("bajados") or []
+    if (r.get("sync") or {}).get("estado") == "ok":
+        r["toast"] = (f"Listo: ya tienes el proyecto «{nuevos[0]}». Elígelo arriba." if nuevos else
+                      "Invitación guardada. Si el proyecto no aparece, revisa que entraste con el correo al que te invitaron.")
+        r["recargar"] = True
+    return r
+
+
+def unirse_pedir(p):
+    resp = pagina_app()
+    resp["pedir"] = {"titulo": "Unirme a un proyecto", "texto": "Pega el enlace de invitación que te mandaron (empieza por filmflowestadistico.github.io/app/?unirse=…).",
+                     "accion": "unirse", "boton": "Unirme"}
+    return resp
 
 
 def equipo_agregar(p):
@@ -2456,7 +2481,8 @@ def html_sync():
         cuerpo += ('<ol class="pasos"><li>Entra a <a href="https://console.cloud.google.com/apis/library/drive.googleapis.com" target="_blank" rel="noopener">'
                    'Google Drive API en Google Cloud</a> (con la cuenta dueña del proyecto).</li>'
                    '<li>Pulsa <b>Habilitar</b>.</li><li>Vuelve aquí y pulsa «Sincronizar ahora».</li></ol>')
-    cuerpo += '<div class="barra-mini llena">' + H.boton("Sincronizar ahora", "sincronizar", "acento", manual=True) + "</div>"
+    cuerpo += ('<div class="barra-mini llena">' + H.boton("Sincronizar ahora", "sincronizar", "acento", manual=True)
+               + f'<button class="btn" {a("unirse_pedir")} title="Pegar el enlace de invitación que te mandaron para tener ese proyecto en la app.">Unirme con un enlace</button>' + "</div>")
     return H.tarjeta(cuerpo, "Sincronizar con el Mac", clase="sync")
 
 
@@ -2528,7 +2554,7 @@ ACCIONES = {k: v for k, v in globals().items() if callable(v) and not k.startswi
     "mover_rollo", "elegir_proyecto", "renombrar_pedir", "renombrar_ok", "nuevo_pedir", "nuevo_ok", "nuevo_conectar", "eliminar_proyecto", "eliminar_ok",
     "correo_pdf", "correo_usar_registro", "correo_prefijo", "cuenta", "sincronizar", "sync_enlace", "nuevo_dia",
     "reporte_abrir", "reporte_cerrar", "reporte_tipo", "reporte_tocar", "reporte_mes", "reporte_rango", "reporte_unidad", "reporte_modo", "reporte_contenido",
-    "reporte_crear", "equipo_agregar", "equipo_cancelar", "equipo_guardar", "equipo_dar_acceso", "equipo_quitar", "equipo_quitar_ok"}}
+    "reporte_crear", "equipo_agregar", "equipo_cancelar", "equipo_guardar", "equipo_dar_acceso", "equipo_quitar", "equipo_quitar_ok", "unirse", "unirse_pedir"}}
 
 
 def _firma_config():

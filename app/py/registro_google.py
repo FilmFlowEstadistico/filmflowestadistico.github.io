@@ -21,7 +21,8 @@ from types import SimpleNamespace
 
 from registro_core import CARPETA, PRIMERA_FILA, ErrorRegistro
 
-PERMISO_DRIVE = "https://www.googleapis.com/auth/drive.metadata.readonly"    # solo para ENCONTRAR la hoja de sincronización
+PERMISO_DRIVE = "https://www.googleapis.com/auth/drive.file"    # solo los archivos que crea la app (encontrar la hoja de sincronización)
+PERMISO_DRIVE_VIEJO = "https://www.googleapis.com/auth/drive.metadata.readonly"   # el de antes (las sesiones viejas lo traen)
 PERMISOS = ["https://www.googleapis.com/auth/spreadsheets", PERMISO_DRIVE, "openid",
             "https://www.googleapis.com/auth/userinfo.email"]
 CORREO = "https://www.googleapis.com/auth/userinfo.email"
@@ -240,7 +241,8 @@ def tiene_permiso(permiso, carpeta=CARPETA):
 def tiene_permiso_drive(carpeta=CARPETA):
     """True si la sesión guardada ya incluye el permiso para encontrar la hoja de sincronización."""
     try:
-        return PERMISO_DRIVE in (json.loads((carpeta / "token.json").read_text()).get("scopes") or [])
+        permisos = json.loads((carpeta / "token.json").read_text()).get("scopes") or []
+        return PERMISO_DRIVE in permisos or PERMISO_DRIVE_VIEJO in permisos or PERMISO_COMPARTIR in permisos
     except Exception:
         return False
 

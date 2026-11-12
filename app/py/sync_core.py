@@ -26,7 +26,9 @@ import registro_core as rc
 
 TITULO = "FILMFLOW_CONFIG (no borrar)"
 PESTANA = "Config"
-PERMISO_DRIVE = "https://www.googleapis.com/auth/drive.metadata.readonly"
+PERMISO_DRIVE = "https://www.googleapis.com/auth/drive.file"      # «solo los archivos que usas con esta app» (permiso normal: no
+                                                                  # necesita auditoría de Google; antes era drive.metadata.readonly)
+URL_APP = "https://filmflowestadistico.github.io/app/"
 DRIVE = "https://www.googleapis.com/drive/v3/files"
 SHEETS = "https://sheets.googleapis.com/v4/spreadsheets"
 TROZO = 30000                      # una celda de Google admite 50 000 caracteres; se guarda en trozos
@@ -156,6 +158,27 @@ class FaltaPermisoCompartir(ErrorSync):
     """La sesión no tiene el permiso de Google para compartir archivos: hay que volver a conectar con ese permiso."""
 
 
+def enlace_invitacion(fid):
+    """El enlace que se le manda a cada persona del equipo: al abrirlo, la app se une al proyecto (lee su ficha)."""
+    return f"{URL_APP}?unirse={fid}"
+
+
+def id_de_invitacion(texto):
+    """El id de la ficha en un enlace de invitación (…?unirse=ID) o en un enlace de la hoja (/d/ID/). None si no hay."""
+    m = re.search(r"unirse=([A-Za-z0-9_-]{20,})", texto or "") or re.search(r"/d/([A-Za-z0-9_-]{20,})", texto or "") \
+        or re.fullmatch(r"\s*([A-Za-z0-9_-]{25,})\s*", texto or "")
+    return m.group(1) if m else None
+
+
+def unirse(fid, carpeta=None):
+    """Anota la ficha de un proyecto al que te invitaron; la próxima sincronización lo trae."""
+    carpeta = Path(carpeta or rc.CARPETA)
+    est = leer_estado(carpeta)
+    unidas = [x for x in (est.get("fichas_unidas") or []) if x != fid] + [fid]
+    est["fichas_unidas"] = unidas
+    _guardar_estado(est, carpeta)
+
+
 def titulo_ficha(nombre):
     return f"{PREFIJO_FICHA}{nombre} (no borrar)"
 
@@ -211,9 +234,11 @@ def _error_drive(codigo, texto, que):
     return _traducir(codigo, texto, f"compartir {que}")
 
 
-def _dar_permiso(http, sid, correo, rol, que, avisar=False):
-    url = (f"{DRIVE}/{sid}/permissions?" + urlencode({"sendNotificationEmail": "true" if avisar else "false",
-                                                      "supportsAllDrives": "true", "fields": "id"}))
+def _dar_permiso(http, sid, correo, rol, que, avisar=False, mensaje=""):
+    q = {"sendNotificationEmail": "true" if (avisar or mensaje) else "false", "supportsAllDrives": "true", "fields": "id"}
+    if mensaje:
+        q["emailMessage"] = mensaje
+    url = f"{DRIVE}/{sid}/permissions?" + urlencode(q)
     codigo, texto = http("POST", url, {"type": "user", "role": rol, "emailAddress": correo})
     if codigo == 400 and not avisar and "notif" in (texto or "").lower():     # correo sin cuenta de Google: solo se puede avisando
         return _dar_permiso(http, sid, correo, rol, que, avisar=True)
@@ -325,7 +350,9 @@ def dar_acceso(http, nombre, p, personas, de="", ahora=None):
                              f"Google Workspace puede permitirlo; mientras tanto se puede dar acceso a un correo @{dom}.")
         if sin_hojas < len(hojas):                             # la ficha solo si tiene acceso al menos a una hoja (si no, vería
             try:                                               # un proyecto al que no puede entrar)
-                _dar_permiso(http, fid, x["correo"], "reader", "la ficha del proyecto")
+                _dar_permiso(http, fid, x["correo"], "reader", "la ficha del proyecto",
+                             mensaje=f"Te agregaron al proyecto «{nombre}» en Estadístico FilmFlow. Abre este enlace en el celular o en el "
+                                     f"computador para tenerlo en la app (entra con este mismo correo): {enlace_invitacion(fid)}")
             except FaltaPermisoCompartir:
                 raise
             except ErrorSync as e:
@@ -342,7 +369,8 @@ def dar_acceso(http, nombre, p, personas, de="", ahora=None):
         n_ok = len(hojas) - sin_hojas
         salida.append(("aviso", f"{x['nombre'] or x['correo']}: {n_ok} de {len(hojas)} hojas compartidas. " + " ".join(fallos)) if fallos else
                       ("ok", f"{x['nombre'] or x['correo']} ya tiene acceso ({'puede editar' if rol == 'writer' else 'solo ver'}) a "
-                             f"{len(hojas)} {'hoja' if len(hojas) == 1 else 'hojas'}. Cuando entre con {x['correo']}, el proyecto le aparece solo."))
+                             f"{len(hojas)} {'hoja' if len(hojas) == 1 else 'hojas'}. Le llegó un correo de Google con el enlace para tener el "
+                             f"proyecto en la app (también se lo puedes mandar tú): {enlace_invitacion(fid)}"))
     return salida
 
 
@@ -361,29 +389,33 @@ def quitar_acceso(http, p, correo):
         [("ok", f"{correo} ya no tiene acceso a las hojas de este proyecto.")]
 
 
-def _proyectos_compartidos(http, est):
-    """{nombre: (p, mod, id_ficha, de)} de las fichas compartidas contigo (se leen solo las que cambiaron) y el estado nuevo
-    de las fichas, o (None, None) si no se pudo mirar Drive (entonces no se agrega ni se quita nada)."""
-    vistas = fichas_compartidas(http)
-    if vistas is None:
-        return None, None
+def _proyectos_compartidos(http, est, conocidas=()):
+    """Los proyectos que te compartieron: las fichas que Drive deja ver (si tu sesión tiene ese permiso) más las CONOCIDAS (enlaces
+    de invitación que abriste y las fichas de los proyectos que ya tienes de alguien). Devuelve (proyectos, caché, perdidas):
+    proyectos = {nombre: (p, mod, id_ficha, de)}; perdidas = fichas que Google confirma que ya no puedes ver (te quitaron)."""
+    vistas = fichas_compartidas(http) or {}
     viejas = est.get("fichas") or {}
-    nuevas, salida = {}, {}
-    for fid, info in vistas.items():
+    nuevas, salida, perdidas = {}, {}, set()
+    for fid in list(vistas) + [f for f in conocidas if f not in vistas]:
+        info = vistas.get(fid) or {"t": "", "de": ""}
         guardada = viejas.get(fid)
-        if guardada and guardada.get("t") == info["t"] and guardada.get("doc"):
+        if info["t"] and guardada and guardada.get("t") == info["t"] and guardada.get("doc"):
             doc = guardada["doc"]
         else:
             try:
                 doc = leer_ficha(http, fid)
-            except ErrorSync:
-                doc = (guardada or {}).get("doc")
+            except ErrorSync as e:
+                if e.codigo in (403, 404):                      # ya no tienes acceso (o la borraron)
+                    perdidas.add(fid)
+                    continue
+                doc = (guardada or {}).get("doc")               # sin internet u otro problema: lo último que se leyó
         if not doc:
             continue
         nuevas[fid] = {"t": info["t"], "doc": doc}
-        p = dict(copy.deepcopy(doc["p"]), origen={"ficha": fid, "de": doc.get("de") or info["de"]})
-        salida[doc["nombre"]] = (p, int(doc.get("mod", 0)), fid, doc.get("de") or info["de"])
-    return salida, nuevas
+        de = doc.get("de") or info["de"]
+        p = dict(copy.deepcopy(doc["p"]), origen={"ficha": fid, "de": de})
+        salida[doc["nombre"]] = (p, int(doc.get("mod", 0)), fid, de)
+    return salida, nuevas, perdidas
 
 
 # ---------------------------------------------------------------------------------------- estado de este aparato
@@ -444,7 +476,7 @@ def sincronizar(http, correo, dispositivo="", crear=True, carpeta=None, ahora=No
     ahora = int(ahora or time.time())
     est = leer_estado(carpeta)
     if est.get("correo") and correo and est["correo"].lower() != correo.lower():
-        est = {}                                              # otra cuenta de Google: se empieza de cero
+        est = {"fichas_unidas": est.get("fichas_unidas") or []}   # otra cuenta de Google: se empieza de cero (las invitaciones quedan)
     sid = sid_manual or est.get("id") or buscar_id(http)
     creada = False
     if not sid:
@@ -480,8 +512,10 @@ def sincronizar(http, correo, dispositivo="", crear=True, carpeta=None, ahora=No
     rem = {n: e for n, e in remoto["proyectos"].items() if isinstance(e, dict) and isinstance(e.get("p"), dict)}
     # proyectos que el encargado te compartió (fichas «FILMFLOW_PROYECTO · …»): aparecen solos y se actualizan con la ficha;
     # uno tuyo con el mismo nombre nunca se pisa. Si te quitaron el acceso (la ficha ya no está), el proyecto se quita.
-    compartidos, fichas = _proyectos_compartidos(http, est)
-    for n, (p_c, mod_c, fid, _de) in (compartidos or {}).items():
+    conocidas = set(est.get("fichas_unidas") or []) | {(e_[0].get("origen") or {}).get("ficha") for e_ in loc.values()} \
+        | {(e_["p"].get("origen") or {}).get("ficha") for e_ in rem.values()}
+    compartidos, fichas, perdidas_f = _proyectos_compartidos(http, est, sorted(x for x in conocidas if x))
+    for n, (p_c, mod_c, fid, _de) in compartidos.items():
         r_ = rem.get(n)
         de_ficha = r_ is not None and ((r_["p"].get("origen") or {}).get("ficha") == fid)
         l_ = loc.get(n)
@@ -490,13 +524,13 @@ def sincronizar(http, correo, dispositivo="", crear=True, carpeta=None, ahora=No
         if r_ is None or (de_ficha and mod_c > int(r_.get("mod", 0))):
             rem[n] = {"p": p_c, "mod": mod_c}
     perdidos = set()
-    if compartidos is not None:
-        ids_vivos = {fid for (_p, _m, fid, _d) in compartidos.values()}
-        for n, (p_l, _m, _h) in list(loc.items()):
-            fid = (p_l.get("origen") or {}).get("ficha")
-            if fid and fid not in ids_vivos:
-                borr[n] = ahora                                # te quitaron el acceso a ese proyecto
-                perdidos.add(n)
+    for n, (p_l, _m, _h) in list(loc.items()):
+        if (p_l.get("origen") or {}).get("ficha") in perdidas_f:
+            borr[n] = ahora                                    # te quitaron el acceso a ese proyecto
+            perdidos.add(n)
+    for n, r_ in list(rem.items()):
+        if (r_["p"].get("origen") or {}).get("ficha") in perdidas_f:
+            rem.pop(n)
     tumbas = dict(remoto.get("borrados") or {})
     for n, t in borr.items():
         tumbas[n] = max(tumbas.get(n, 0), t)
@@ -569,7 +603,8 @@ def sincronizar(http, correo, dispositivo="", crear=True, carpeta=None, ahora=No
 
     _guardar_estado({"id": sid, "correo": correo, "ultima": ahora, "error": "",
                      "proyectos": {n: {"h": _huella(e["p"]), "mod": e["mod"]} for n, e in final.items()},
-                     "borrados": doc["borrados"], "fichas": fichas if fichas is not None else (est.get("fichas") or {}),
+                     "borrados": doc["borrados"], "fichas": fichas,
+                     "fichas_unidas": [f for f in (est.get("fichas_unidas") or []) if f not in perdidas_f],
                      "fichas_propias": {n: h for n, h in propias.items() if n in final}}, carpeta)
     return {"estado": "ok", "sid": sid, "creada": creada, "bajados": bajados, "subidos": subidos, "borrados": borrados,
             "proyectos": len(final)}

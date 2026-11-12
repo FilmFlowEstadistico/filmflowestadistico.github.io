@@ -8,7 +8,7 @@ const base = new URL("./", location.href).href;
 const $ = (s) => document.querySelector(s);
 const vista = $("#vista");
 const PAGINAS_GOOGLE = new Set(["resumen", "registrar", "hojas", "correo"]);
-const PERMISOS = "https://www.googleapis.com/auth/spreadsheets openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/drive.metadata.readonly";
+const PERMISOS = "https://www.googleapis.com/auth/spreadsheets openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/drive.file";
 let actual = "resumen";
 let sesion = { token: null, exp: 0, correo: null };
 let cliente = null;
@@ -279,7 +279,7 @@ function cargarGIS() {
   });
 }
 let errorConexion = "";
-const PERMISO_DRIVE = "https://www.googleapis.com/auth/drive.metadata.readonly";
+const PERMISO_DRIVE = "https://www.googleapis.com/auth/drive.file";
 function crearCliente(scope) {
   return google.accounts.oauth2.initTokenClient({ client_id: CFG.clientId, scope, callback: () => {}, error_callback: () => {} });
 }
@@ -383,7 +383,8 @@ async function conectar() {
   if (t) {
     toast("Cuenta conectada" + (sesion.correo ? ": " + sesion.correo : ""));
     const _p = actual; document.body.classList.remove("sin-sesion"); ocultarPortada();
-    await ir(PAGINAS_GOOGLE.has(_p) ? _p : "resumen", false); sincronizar(false);
+    await ir(PAGINAS_GOOGLE.has(_p) ? _p : "resumen", false);
+    if (leer("ff-unirse") && leer("ff-unirse") !== "null") await procesarInvitacion(); else sincronizar(false);
   } else if (CFG.clientId) {
     if (errorConexion === "toca_otra_vez") toast(textoErrorConexion());
     else await modal({ titulo: "No se pudo conectar", texto: textoErrorConexion(), si: "Entendido", no: "" });
@@ -603,6 +604,11 @@ const JS = {
     try { await navigator.share({ title: $("#correo-asunto").value, text: texto }); } catch (e) {}
   },
   tema(el) { guardar("ff-tema", el.dataset.v); aplicarTema(); posprocesar(); toast("Apariencia: " + el.textContent); },
+  async invitar(el) {                // «Equipo del proyecto»: mandar el enlace de invitación (WhatsApp, correo…) o copiarlo
+    const texto = `Te agregué al proyecto «${el.dataset.proyecto}» en Estadístico FilmFlow. Abre este enlace y entra con ${el.dataset.correo}: ${el.dataset.enlace}`;
+    try { if (navigator.share) { await navigator.share({ title: "Estadístico FilmFlow", text: texto }); return; } } catch (e) { if (e.name === "AbortError") return; }
+    toast((await copiar(texto)) ? "Invitación copiada: pégala en WhatsApp o en un correo." : el.dataset.enlace);
+  },
   proyecto: elegirProyecto,
 };
 
@@ -891,7 +897,15 @@ function pintarVersion() {
     <button class="btn" data-js="compartir_descarga" title="Mandar a otro data manager el enlace para instalar la app (Mac y celular).">Compartir enlace de descarga</button></div></section>`;
 }
 // ---------- arranque ----------
+async function procesarInvitacion() {
+  const f = leer("ff-unirse");
+  if (!f || f === "null" || !tokenVigente() || PRUEBA) return;
+  guardar("ff-unirse", "null");
+  mostrar(await api("unirse", { ficha: f }));
+}
 (async () => {
+  const inv = new URLSearchParams(location.search).get("unirse");       // enlace de invitación a un proyecto
+  if (inv) { guardar("ff-unirse", inv); history.replaceState(null, "", location.pathname + location.hash); }
   cargarSesion(); revisarRed(); if (!navigator.onLine) probarRed();
   const regreso = PRUEBA ? null : await regresoDeGoogle();          // volviendo de iniciar sesión (app instalada)
   if (regreso === "redirige") return;
@@ -926,5 +940,6 @@ function pintarVersion() {
   if (tokenVigente() && !conCache) await sincronizar(false);   // sin nada guardado: primero traer los proyectos y leer una sola vez
   await ir(pendiente ? "ajustes" : inicial, conCache && !pendiente);
   if (pendiente && pendiente.accion) mostrar(await api(pendiente.accion, pendiente.p || {}));
+  await procesarInvitacion();
   if (tokenVigente() && conCache) sincronizar(false);
 })();
