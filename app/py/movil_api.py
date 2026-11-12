@@ -2492,7 +2492,7 @@ def _sincronizar(manual=False, sid_manual=None):
         return {"sync": {"estado": "sin_sesion"}}
     try:
         r = sc.sincronizar(web_shim.http_directo, web_shim.ESTADO["correo"], "teléfono", crear=True, gana_local_al_inicio=False,
-                           sid_manual=sid_manual)
+                           sid_manual=sid_manual, forzar_fichas=manual)
     except sc.ErrorSync as e:
         sc.anotar_error(str(e))
         return {"sync": {"estado": "error", "texto": str(e), "falta_permiso": e.falta_permiso, "falta_api": e.falta_api, "codigo": e.codigo},

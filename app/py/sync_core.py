@@ -389,7 +389,10 @@ def quitar_acceso(http, p, correo):
         [("ok", f"{correo} ya no tiene acceso a las hojas de este proyecto.")]
 
 
-def _proyectos_compartidos(http, est, conocidas=()):
+RELEER_FICHAS = 600        # una ficha que Drive no lista se vuelve a leer cada 10 minutos como mucho (antes: en cada sincronización)
+
+
+def _proyectos_compartidos(http, est, conocidas=(), forzar=False, ahora=None):
     """Los proyectos que te compartieron: las fichas que Drive deja ver (si tu sesión tiene ese permiso) más las CONOCIDAS (enlaces
     de invitación que abriste y las fichas de los proyectos que ya tienes de alguien). Devuelve (proyectos, caché, perdidas):
     proyectos = {nombre: (p, mod, id_ficha, de)}; perdidas = fichas que Google confirma que ya no puedes ver (te quitaron)."""
@@ -399,9 +402,12 @@ def _proyectos_compartidos(http, est, conocidas=()):
     for fid in list(vistas) + [f for f in conocidas if f not in vistas]:
         info = vistas.get(fid) or {"t": "", "de": ""}
         guardada = viejas.get(fid)
-        if info["t"] and guardada and guardada.get("t") == info["t"] and guardada.get("doc"):
+        reciente = guardada and guardada.get("doc") and not forzar and (ahora or time.time()) - guardada.get("leida", 0) < RELEER_FICHAS
+        if (info["t"] and guardada and guardada.get("t") == info["t"] and guardada.get("doc")) or (not info["t"] and reciente):
             doc = guardada["doc"]
+            leida = guardada.get("leida", 0)
         else:
+            leida = int(ahora or time.time())
             try:
                 doc = leer_ficha(http, fid)
             except ErrorSync as e:
@@ -409,9 +415,10 @@ def _proyectos_compartidos(http, est, conocidas=()):
                     perdidas.add(fid)
                     continue
                 doc = (guardada or {}).get("doc")               # sin internet u otro problema: lo último que se leyó
+                leida = (guardada or {}).get("leida", 0)
         if not doc:
             continue
-        nuevas[fid] = {"t": info["t"], "doc": doc}
+        nuevas[fid] = {"t": info["t"], "doc": doc, "leida": leida}
         de = doc.get("de") or info["de"]
         p = dict(copy.deepcopy(doc["p"]), origen={"ficha": fid, "de": de})
         salida[doc["nombre"]] = (p, int(doc.get("mod", 0)), fid, de)
@@ -466,7 +473,8 @@ def describir(carpeta=None):
 
 
 # ---------------------------------------------------------------------------------------- el trabajo
-def sincronizar(http, correo, dispositivo="", crear=True, carpeta=None, ahora=None, gana_local_al_inicio=False, sid_manual=None):
+def sincronizar(http, correo, dispositivo="", crear=True, carpeta=None, ahora=None, gana_local_al_inicio=False, sid_manual=None,
+                forzar_fichas=False):
     """Pone de acuerdo este aparato con Google. Devuelve un resumen:
     {'estado': 'ok'|'sin_config', 'sid', 'creada', 'bajados': [...], 'subidos': [...], 'borrados': [...], 'proyectos': n}
     `gana_local_al_inicio`: la PRIMERA vez que este aparato se sincroniza, si un proyecto existe en los dos lados con el mismo
@@ -514,7 +522,7 @@ def sincronizar(http, correo, dispositivo="", crear=True, carpeta=None, ahora=No
     # uno tuyo con el mismo nombre nunca se pisa. Si te quitaron el acceso (la ficha ya no está), el proyecto se quita.
     conocidas = set(est.get("fichas_unidas") or []) | {(e_[0].get("origen") or {}).get("ficha") for e_ in loc.values()} \
         | {(e_["p"].get("origen") or {}).get("ficha") for e_ in rem.values()}
-    compartidos, fichas, perdidas_f = _proyectos_compartidos(http, est, sorted(x for x in conocidas if x))
+    compartidos, fichas, perdidas_f = _proyectos_compartidos(http, est, sorted(x for x in conocidas if x), forzar=forzar_fichas, ahora=ahora)
     for n, (p_c, mod_c, fid, _de) in compartidos.items():
         r_ = rem.get(n)
         de_ficha = r_ is not None and ((r_["p"].get("origen") or {}).get("ficha") == fid)
