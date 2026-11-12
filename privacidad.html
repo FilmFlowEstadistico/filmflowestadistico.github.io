@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Política de privacidad · Estadístico FilmFlow</title>
+<link rel="icon" href="app/assets/icono-192.png">
+<style>
+:root{--v:#34C77B;--bg:#07100D;--s:rgba(20,30,26,.85);--t:#F2F4F3;--m:#A7B4AE;--b:rgba(255,255,255,.09);color-scheme:dark}
+*{box-sizing:border-box}html{background:var(--bg)}
+body{margin:0;color:var(--t);font:17px/1.65 -apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;background:#07100D url(fondo.jpg) center top/cover fixed no-repeat}
+@supports (-webkit-touch-callout:none){body{background-attachment:scroll}}
+nav{display:flex;gap:18px;flex-wrap:wrap;align-items:center;padding:14px 20px;background:rgba(7,16,13,.85);border-bottom:1px solid var(--b);font-size:15px}
+nav b{margin-right:auto;color:var(--v)}nav a{color:var(--t);text-decoration:none}nav a:hover{color:var(--v)}
+main{max-width:780px;margin:24px auto 64px;padding:clamp(20px,4vw,40px);background:var(--s);border:1px solid var(--b);border-radius:24px;
+      -webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);margin-left:max(16px,calc(50% - 390px));margin-right:max(16px,calc(50% - 390px))}
+h1{font-size:clamp(28px,5vw,38px);margin:.1em 0 .3em;letter-spacing:-.02em}h2{color:var(--v);margin-top:1.8em;font-size:1.2rem}
+a{color:var(--v)}ul{padding-left:22px}li{margin:.35em 0}.m{color:var(--m);font-size:15px}code{background:rgba(255,255,255,.08);padding:1px 6px;border-radius:6px}
+</style></head><body>
+<nav><b>Estadístico FilmFlow</b><a href="./">Inicio y descargas</a><a href="privacidad.html">Política de privacidad</a><a href="terminos.html">Condiciones del servicio</a></nav>
+<main>
+<h1>Política de privacidad</h1>
+<p>Esta política explica qué datos usa <b>Estadístico FilmFlow</b> («la app»: la aplicación para Mac y la versión para iPhone/iPad en
+<a href="app/">filmflowestadistico.github.io/app</a>) y qué hace con ellos. La app es una herramienta interna de FilmFlow para data managers
+de producciones audiovisuales: lee los reportes de Silverstack y llena las hojas de Google Sheets del proyecto.</p>
+
+<h2>Qué datos de Google usa la app y para qué</h2>
+<ul>
+<li><b>Tu correo de Google</b> (<code>userinfo.email</code>, <code>openid</code>): para mostrarte con qué cuenta estás conectado y para que tus proyectos se sincronicen entre tu Mac y tu celular.</li>
+<li><b>Tus hojas de Google Sheets</b> (<code>spreadsheets</code>): la app lee las hojas que TÚ conectas a cada proyecto (el estatus de tarjetas y el estadístico) para mostrarte el resumen del rodaje y comparar las dos hojas, y escribe en ellas el día de rodaje o una corrección <b>solo cuando tú lo apruebas</b>, después de mostrarte exactamente qué va a cambiar. No abre otras hojas.</li>
+<li><b>Archivos que crea la propia app</b> (<code>drive.file</code>): la app crea en tu Google Drive una hoja llamada «FILMFLOW_CONFIG (no borrar)» con la configuración de tus proyectos (qué hojas usa cada uno, sus rollos y cámaras), para que el Mac y el celular tengan lo mismo; y, si compartes un proyecto con tu equipo, una hoja «FILMFLOW_PROYECTO · …» con esa misma configuración. Con este permiso la app solo puede ver los archivos que ella misma creó o que tú abriste con ella; no ve el resto de tu Drive.</li>
+<li><b>Compartir con tu equipo</b> (<code>drive</code>, solo si usas «Equipo del proyecto» y solo para la cuenta que comparte): cuando agregas a una persona a un proyecto, la app le da acceso (editar o solo ver, como elijas) a las hojas conectadas a ese proyecto y le envía la invitación. Cuando la quitas, le quita ese acceso. Este permiso se pide únicamente en ese momento y solo se usa para eso.</li>
+</ul>
+
+<h2>Otros datos</h2>
+<ul><li><b>Los reportes PDF de Silverstack</b> que eliges se leen en tu propio equipo (computador o celular); no se envían a ningún servidor.</li></ul>
+
+<h2>Dónde se guardan</h2>
+<p>La app funciona en tu equipo. El permiso de acceso de Google (token) y tu configuración se guardan solo en tu equipo y en las hojas de tu
+propio Google Drive descritas arriba. <b>FilmFlow no tiene servidores</b> que reciban, almacenen o procesen tus datos de Google, el contenido
+de tus hojas ni tus PDF.</p>
+
+<h2>Con quién se comparten</h2>
+<p>Con nadie, salvo con las personas que TÚ agregas al equipo de un proyecto (y solo las hojas de ese proyecto). No vendemos, transferimos ni
+compartimos tus datos con terceros, ni los usamos para publicidad ni para entrenar modelos de inteligencia artificial.</p>
+
+<h2>Uso de la información de Google</h2>
+<p>El uso y la transferencia a cualquier otra aplicación de la información recibida de las API de Google se ajustan a la
+<a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener">Política de datos de usuario de los servicios de API de Google</a>,
+incluidos los requisitos de uso limitado.</p>
+
+<h2>Cómo retirar el permiso y borrar tus datos</h2>
+<ul>
+<li>Dentro de la app: «Desconectar» en Ajustes de la app.</li>
+<li>En tu cuenta de Google: <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener">myaccount.google.com/permissions</a> → Estadístico FilmFlow → Quitar acceso.</li>
+<li>Para borrar la configuración guardada en tu Drive, borra las hojas «FILMFLOW_CONFIG (no borrar)» y «FILMFLOW_PROYECTO · …». En el Mac, la carpeta de datos de la app está en <code>~/Library/Application Support/Estadistico FilmFlow</code>.</li>
+</ul>
+
+<h2>Cambios y contacto</h2>
+<p>Si esta política cambia, publicaremos la nueva versión en esta página. Para cualquier duda o para pedir que se borren tus datos:
+<a href="mailto:datacol@filmflowtv.com">datacol@filmflowtv.com</a>.</p>
+<p class="m" style="margin-top:2.4em">FilmFlow · Contacto: <a href="mailto:datacol@filmflowtv.com">datacol@filmflowtv.com</a> · Última actualización: 12 de noviembre de 2026</p>
+</main></body></html>
