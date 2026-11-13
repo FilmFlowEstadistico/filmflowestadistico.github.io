@@ -545,6 +545,25 @@ def html_calendario(r, fechas):
     return f'<div class="calendario">{cab}<div class="cal-grid">{dias}{"".join(celdas)}</div></div>'
 
 
+def html_rueda(r, semanas):
+    """La rueda de semanas del proyecto: tarjetas que se deslizan de lado. Tocar una = esa semana sola; el círculo de la esquina
+    la agrega o la quita (para sacar el reporte de varias semanas)."""
+    elegidas = set(rpt.semanas_elegidas(semanas, r["elegidos"]))
+    tarjetas = []
+    for w in semanas:
+        sel = w["id"] in elegidas
+        fechas = rpt.texto_periodo_corto(w["desde"], w["hasta"])
+        dias = f'{w["dias"]} {"día" if w["dias"] == 1 else "días"} · {rsm.texto_peso(w["gb"])}'
+        tarjetas.append(
+            f'<div class="sem{" sel" if sel else ""}" role="option" aria-selected="{"true" if sel else "false"}" tabindex="0" '
+            f'{a("reporte_semana", id=w["id"])} title="Elegir solo esta semana">'
+            f'<span class="sem-mas" {a("reporte_semana", id=w["id"], sumar=True)} '
+            f'title="{"Quitar esta semana de las elegidas" if sel else "Agregar esta semana a las elegidas"}">{"✓" if sel else "+"}</span>'
+            f'<span class="sem-n">{esc(w["nombre"])}</span><span class="sem-f">{esc(fechas)}</span>'
+            f'<span class="sem-d">{esc(dias)}</span><span class="sem-r">{esc(w["primero"])}{(" – " + esc(w["ultimo"])) if w["ultimo"] != w["primero"] else ""}</span></div>')
+    return f'<div class="rueda" role="listbox" aria-label="Semanas del proyecto"><div class="rueda-pista">{"".join(tarjetas)}</div></div>'
+
+
 def html_reporte(m):
     r = E["reporte"]
     fechas = rpt.rodados(m, r["unidad"])
@@ -562,13 +581,22 @@ def html_reporte(m):
     if r["tipo"] == "dias" and r["elegidos"]:
         botones.append(H.boton("Quitar todos", "reporte_rango", "mini", tipo="dias", fechas=[]))
     cuerpo += '<div class="atajos">' + "".join(botones) + "</div>"
-    cuerpo += html_calendario(r, fechas)
-    ayuda = {"dia": "Toca un día.", "semana": "Toca cualquier día: se elige su semana (lunes a domingo).",
-             "dias": "Toca cada día que quieras; tócalo otra vez para quitarlo."}[r["tipo"]]
-    cuerpo += f'<p class="nota">{esc(ayuda)} El punto verde marca los días con material.</p>'
+    semanas = rpt.semanas_del_proyecto(m, r["unidad"])
+    if r["tipo"] == "semana" and semanas:
+        cuerpo += html_rueda(r, semanas)
+        cuerpo += ('<p class="nota">Desliza para ver las semanas del proyecto. Toca una para elegirla; toca el <b>+</b> de otra para '
+                   'sumarla (por ejemplo, Semanas 2 y 3).</p>')
+    else:
+        cuerpo += html_calendario(r, fechas)
+        ayuda = {"dia": "Toca un día.", "semana": "Toca cualquier día: se elige su semana (lunes a domingo).",
+                 "dias": "Toca cada día que quieras; tócalo otra vez para quitarlo."}[r["tipo"]]
+        cuerpo += f'<p class="nota">{esc(ayuda)} El punto verde marca los días con material.</p>'
     out.append(H.tarjeta(cuerpo, "Sacar un reporte", H.boton("Cerrar", "reporte_cerrar", "mini")))
-    datos = rpt.armar(m, r["elegidos"], r["unidad"]) if r["elegidos"] else None
+    datos = rpt.armar(m, r["elegidos"], r["unidad"], modo=r["tipo"]) if r["elegidos"] else None
     res = (f'<span class="chip info">{esc(datos["unidad"])}</span>' if datos and datos.get("unidad") else "")
+    if datos and datos["dias"]:                       # cómo se va a llamar el reporte (así se ve en la portada)
+        res += (f'<div class="rep-nombre"><span>{esc(datos["proyecto_bonito"] or datos["proyecto"])}</span>'
+                f'<b>{esc(datos["titulo_grande"])}</b></div>')
     res += f'<div class="periodo-txt">{esc(datos["periodo"] if datos else "Ningún día")}</div>'
     if datos and datos["dias"]:
         t = datos["totales"]
@@ -623,9 +651,17 @@ def _con_reporte(f):
     return _repintar_reporte()
 
 
+def reporte_semana(p):
+    def f(r, _fechas):
+        semanas = rpt.semanas_del_proyecto(E["resumen"], r["unidad"])
+        e = rpt.tocar_semana(semanas, r["elegidos"], p["id"], bool(p.get("sumar")))
+        r.update(elegidos=e, tipo="semana", **({"mes": (max(e).year, max(e).month)} if e else {}))
+    return _con_reporte(f)
+
+
 def reporte_tipo(p):
     def f(r, fechas):
-        e = rpt.ajustar(p["valor"], r["elegidos"], fechas)
+        e = rpt.ajustar(p["valor"], r["elegidos"], fechas, rpt.semanas_del_proyecto(E["resumen"], r["unidad"]))
         r.update(tipo=p["valor"], elegidos=e, mes=(max(e).year, max(e).month))
     return _con_reporte(f)
 
@@ -663,12 +699,12 @@ def reporte_crear(p):
     r, m = E["reporte"], E["resumen"]
     if not r or m is None or not r["elegidos"]:
         return _repintar_reporte()
-    datos = rpt.armar(m, r["elegidos"], r["unidad"], paleta=tema.PALETA_ROLLOS)
+    datos = rpt.armar(m, r["elegidos"], r["unidad"], paleta=tema.PALETA_ROLLOS, modo=r["tipo"])
     # el navegador cambia LOGO_CLARO / LOGO_OSCURO por los logos de verdad (así el archivo se puede mandar solo)
     # sin los botones de arriba: el archivo que se comparte desde el teléfono queda limpio (la app ya tiene Compartir y PDF)
     pagina_ = rpt.a_html(datos, r["modo"], {"claro": "LOGO_CLARO", "oscuro": "LOGO_OSCURO"}, barra=False, completo=r["completo"])
     return _repintar_reporte({"reporte": {"html": pagina_, "nombre": rpt.nombre_archivo(datos, "html"),
-                                          "titulo": f"Reporte {datos['tipo']} · {datos['proyecto']} · {datos['periodo']}"}})
+                                          "titulo": f"{datos['titulo_grande']} · {datos['proyecto_bonito'] or datos['proyecto']} · {datos['periodo']}"}})
 
 
 def pagina_resumen(p=None):
@@ -2560,7 +2596,7 @@ ACCIONES = {k: v for k, v in globals().items() if callable(v) and not k.startswi
     "mover_rollo", "elegir_proyecto", "renombrar_pedir", "renombrar_ok", "nuevo_pedir", "nuevo_ok", "nuevo_conectar", "eliminar_proyecto", "eliminar_ok",
     "correo_pdf", "correo_usar_registro", "correo_prefijo", "cuenta", "sincronizar", "sync_enlace", "nuevo_dia",
     "reporte_abrir", "reporte_cerrar", "reporte_tipo", "reporte_tocar", "reporte_mes", "reporte_rango", "reporte_unidad", "reporte_modo", "reporte_contenido",
-    "reporte_crear", "equipo_agregar", "equipo_cancelar", "equipo_guardar", "equipo_dar_acceso", "equipo_quitar", "equipo_quitar_ok", "unirse", "unirse_pedir"}}
+    "reporte_crear", "reporte_semana", "equipo_agregar", "equipo_cancelar", "equipo_guardar", "equipo_dar_acceso", "equipo_quitar", "equipo_quitar_ok", "unirse", "unirse_pedir"}}
 
 
 def _firma_config():

@@ -48,10 +48,83 @@ def rango(desde, hasta):
     return {desde + timedelta(days=k) for k in range((hasta - desde).days + 1)}
 
 
+def semanas_del_proyecto(modelo, unidad_id=None):
+    """Las semanas DEL PROYECTO (no las del calendario), en orden: las que marca la columna SEMANA del estadístico («1 PILOTO», 1, 2…);
+    sin estadístico (o sin esa columna), cada semana de calendario con material es la siguiente: Semana 1, Semana 2…
+    Cada una: {id, nombre («Semana 3» / «Piloto»), corto («S3»), fechas (las rodadas, en orden), desde, hasta, dias, gb, primero, ultimo}."""
+    v = vista_de(modelo, unidad_id)
+    serie = [d for d in (v or modelo)["serie"] if d.get("fecha")]
+    fechas = sorted({d["fecha"] for d in serie})
+    if not fechas:
+        return []
+    gb_de, dia_de = {}, {}
+    for d in serie:
+        gb_de[d["fecha"]] = gb_de.get(d["fecha"], 0.0) + (d.get("gb") or 0.0)
+        dia_de.setdefault(d["fecha"], d["dia"])
+    marca_de = {}
+    for d in modelo.get("dias07") or []:
+        if d.get("fecha") and str(d.get("semana") or "").strip():
+            marca_de.setdefault(d["fecha"], str(d["semana"]).strip())
+    salida, por_id = [], {}
+    if any(f in marca_de for f in fechas):
+        primera, marca = min(f for f in fechas if f in marca_de), None
+        for f in fechas:
+            marca = marca_de.get(f) or (marca if f > primera else None)
+            clave = marca or "antes"
+            if clave not in por_id:
+                nombre = nombre_semana(marca) if marca else "Antes de la Semana 1"
+                por_id[clave] = {"id": clave, "nombre": nombre, "fechas": []}
+                salida.append(por_id[clave])
+            por_id[clave]["fechas"].append(f)
+    else:
+        for f in fechas:
+            clave = semana_de(f)[0].isoformat()
+            if clave not in por_id:
+                por_id[clave] = {"id": clave, "nombre": f"Semana {len(salida) + 1}", "fechas": []}
+                salida.append(por_id[clave])
+            por_id[clave]["fechas"].append(f)
+    for w in salida:
+        fs = w["fechas"]
+        num = re.search(r"\d+", w["nombre"])
+        w.update(desde=fs[0], hasta=fs[-1], dias=len(fs), gb=sum(gb_de.get(f, 0.0) for f in fs), primero=dia_de.get(fs[0], ""),
+                 ultimo=dia_de.get(fs[-1], ""), corto=("S" + num[0]) if w["nombre"].startswith("Semana") and num else
+                 "Antes" if w["id"] == "antes" else w["nombre"][:10])
+    return salida
+
+
+def semanas_elegidas(semanas, elegidos):
+    """Los id de las semanas del proyecto que están COMPLETAS en lo elegido."""
+    sel = set(elegidos)
+    return [w["id"] for w in semanas if w["fechas"] and set(w["fechas"]) <= sel]
+
+
+def tocar_semana(semanas, elegidos, wid, sumar=False):
+    """Tocar una semana de la rueda: sola (lo normal) o, con `sumar`, se agrega a las elegidas o se quita si ya estaba."""
+    w = next((x for x in semanas if x["id"] == wid), None)
+    if not w:
+        return set(elegidos)
+    fs = set(w["fechas"])
+    if not sumar:
+        return fs
+    sel = set(elegidos)
+    return (sel - fs) if fs <= sel else (sel | fs)
+
+
+def semana_de_fecha(semanas, f):
+    """La semana del proyecto que tiene la fecha `f` (o la última antes de ella)."""
+    previa = None
+    for w in semanas:
+        if w["desde"] <= f <= w["hasta"] or f in w["fechas"]:
+            return w
+        if w["desde"] <= f:
+            previa = w
+    return previa or (semanas[0] if semanas else None)
+
+
 def inicial(modelo, unidad_id=None):
-    """Lo que se propone al abrir: la semana del último día rodado (vacío si no hay fechas)."""
-    fechas = rodados(modelo, unidad_id)
-    return rango(*semana_de(fechas[-1])) if fechas else set()
+    """Lo que se propone al abrir: la última semana del proyecto (vacío si no hay fechas)."""
+    semanas = semanas_del_proyecto(modelo, unidad_id)
+    return set(semanas[-1]["fechas"]) if semanas else set()
 
 
 def tocar(tipo, elegidos, f):
@@ -64,13 +137,21 @@ def tocar(tipo, elegidos, f):
     return set(elegidos) ^ {f}
 
 
-def ajustar(tipo, elegidos, fechas):
-    """Al cambiar de Día/Semana/Varios días, lo elegido se acomoda sin perder el lugar."""
+def ajustar(tipo, elegidos, fechas, semanas=None):
+    """Al cambiar de Día/Semana/Varios días, lo elegido se acomoda sin perder el lugar. Con `semanas` (las del proyecto), «Semana»
+    elige la semana del proyecto de lo que estaba elegido (si no, la de calendario, lunes a domingo)."""
     ref = max(elegidos) if elegidos else (fechas[-1] if fechas else date.today())
     con_material = sorted(f for f in elegidos if f in set(fechas))
     if tipo == "dia":
         return {con_material[-1] if con_material else ref}
     if tipo == "semana":
+        if semanas:
+            ya = semanas_elegidas(semanas, elegidos)
+            if ya and set(elegidos) <= set().union(*(set(w["fechas"]) for w in semanas if w["id"] in ya)):
+                return set(elegidos)                   # ya eran semanas completas: se quedan
+            w = semana_de_fecha(semanas, con_material[-1] if con_material else ref)
+            if w:
+                return set(w["fechas"])
         return rango(*semana_de(ref))
     return set(con_material) or {ref}                 # de una semana quedan sus días con material, para quitar o agregar
 
@@ -81,11 +162,12 @@ def atajos(modelo, unidad_id=None):
     if not fechas:
         return []
     u = fechas[-1]
-    lunes = semana_de(u)[0]
-    salida = [("Último día", "dia", {u}), ("Última semana", "semana", rango(lunes, lunes + timedelta(days=6)))]
-    anterior = semana_de(lunes - timedelta(days=1))
-    if any(anterior[0] <= f <= anterior[1] for f in fechas):
-        salida.append(("Semana anterior", "semana", rango(*anterior)))
+    semanas = semanas_del_proyecto(modelo, unidad_id)
+    salida = [("Último día", "dia", {u})]
+    if semanas:
+        salida.append((f"Última semana ({semanas[-1]['corto']})", "semana", set(semanas[-1]["fechas"])))
+    if len(semanas) > 1:
+        salida.append((f"Semana anterior ({semanas[-2]['corto']})", "semana", set(semanas[-2]["fechas"])))
     salida.append(("Todo el proyecto", "dias", set(fechas)))
     return salida
 
@@ -137,6 +219,17 @@ def texto_periodo(desde, hasta):
     return f"{texto_fecha(desde, False)} – {texto_fecha(hasta)}"
 
 
+def texto_periodo_corto(desde, hasta):
+    """Para las tarjetas de la rueda: «7 – 12 sep», «31 ago – 5 sep» (sin el año; con año solo si cruza de año)."""
+    if desde.year != hasta.year:
+        return texto_periodo(desde, hasta)
+    if desde == hasta:
+        return texto_fecha(desde, False)
+    if desde.month == hasta.month:
+        return f"{desde.day} – {texto_fecha(hasta, False)}"
+    return f"{texto_fecha(desde, False)} – {texto_fecha(hasta, False)}"
+
+
 def texto_del_al(desde, hasta):
     """«del 13 al 16 oct 2026», «del 28 sep al 4 oct 2026», «del 28 dic 2026 al 3 ene 2027»."""
     if desde.year != hasta.year:
@@ -151,6 +244,10 @@ def titulo_de(datos, todas_las_fechas):
     con_material = [d["fecha"] for d in datos["dias"]]
     if not con_material:
         return texto_del_al(datos["desde"], datos["hasta"]) if datos["desde"] != datos["hasta"] else texto_fecha(datos["desde"])
+    sem = datos.get("semanas_rep") or []
+    if sem and (datos.get("modo") == "semana" or len(con_material) > 1) and \
+            not (datos.get("modo") != "semana" and len(todas_las_fechas) > 1 and set(con_material) == set(todas_las_fechas)):
+        return texto_semanas(sem)                       # «Semana 3», «Semanas 3 y 4», «Semanas 1, 3 y 5»
     if len(todas_las_fechas) > 1 and set(con_material) == set(todas_las_fechas):
         return "de todo el proyecto"
     if len(con_material) == 1:
@@ -226,7 +323,7 @@ def colores_de_camaras(camaras, paleta=None):
     return out
 
 
-def armar(modelo, elegidos, unidad_id=None, paleta=None, ahora=None):
+def armar(modelo, elegidos, unidad_id=None, paleta=None, ahora=None, modo=None):
     """Todo lo que lleva el reporte de los días `elegidos` (conjunto de fechas, seguidas o sueltas).
     `unidad_id`: la unidad elegida en el Resumen (None = todas)."""
     paleta = paleta or PALETA
@@ -289,9 +386,22 @@ def armar(modelo, elegidos, unidad_id=None, paleta=None, ahora=None):
            "menor": min(dias, key=lambda d: d["gb"]) if dias else None,
            "camaras": len([r for r in camaras if r["tipo"] == "camara"]), "equipos": len(camaras)}
 
-    # ---- con qué se compara: la semana anterior (reporte semanal) o los mismos días de rodaje justo antes ----
+    # ---- semanas del proyecto que están completas en lo elegido (para el título «Semana 3») ----
+    semanas_proy = semanas_del_proyecto(modelo, unidad_id)
+    ids = semanas_elegidas(semanas_proy, sel)
+    cubiertas = [w for w in semanas_proy if w["id"] in ids]
+    con_mat = {d["fecha"] for d in dias}
+    exacto = bool(cubiertas) and set().union(*(set(w["fechas"]) for w in cubiertas)) == con_mat
+    semanas_rep = [w["nombre"] for w in cubiertas] if exacto else []
+
+    # ---- con qué se compara: la semana anterior del proyecto, la de calendario, o los mismos días de rodaje justo antes ----
     tipo = tipo_de(desde, hasta) if seguidos(sel) else "de días elegidos"
-    if tipo == "semanal":
+    if exacto and len(cubiertas) == 1 and semanas_proy.index(cubiertas[0]) > 0:
+        tipo = "semanal"
+        w_ant = semanas_proy[semanas_proy.index(cubiertas[0]) - 1]
+        previos = [d for d in serie if d.get("fecha") in set(w_ant["fechas"])]
+        texto_ant = w_ant["nombre"]
+    elif tipo == "semanal":
         previos = [d for d in serie if d.get("fecha") and desde - timedelta(days=7) <= d["fecha"] < desde]
         texto_ant = "semana anterior"
     else:
@@ -370,8 +480,10 @@ def armar(modelo, elegidos, unidad_id=None, paleta=None, ahora=None):
             "periodo": texto_seleccion(sel), "almacenamiento": almacenamiento, "unidad": unidad_txt, "dias": lista_dias, "camaras": camaras, "tipos": tipos,
             "totales": tot, "anterior": anterior, "general": general, "semanas": semanas, "por_semana": por_semana, "equipo": (vista or {}).get("equipo") or modelo.get("equipo") or {},
             "formato": (vista or {}).get("formato") or modelo.get("formato") or [], "fuente": modelo.get("fuente", ""),
-            "generado": ahora or datetime.now(), "avisos": avisos}
+            "generado": ahora or datetime.now(), "avisos": avisos, "semanas_rep": semanas_rep, "modo": modo,
+            "proyecto_bonito": proyecto_bonito(modelo.get("proyecto") or "")}
     datos["titulo"] = titulo_de(datos, sorted({d["fecha"] for d in serie if d.get("fecha")}))
+    datos["titulo_grande"] = titulo_grande(datos["titulo"])
     datos["unidad_id"] = vista["id"] if vista else None
     datos["por_unidad"] = por_unidad(modelo, sel, colores) if vista is None else []
     if datos["por_unidad"]:                            # cada unidad tiene su equipo: arriba solo lo que comparten, lo demás en su fila
@@ -680,8 +792,15 @@ td.n{white-space:nowrap}
 border-top:1px solid var(--borde);border-bottom:1px solid var(--borde)}
 .equipo span{display:block;font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--verde-t)}
 .equipo b{display:block;font-size:12px;font-weight:600;line-height:1.3;margin-top:2px}
-.u-chip{display:inline-block;background:var(--verde);color:#04130A;font-weight:700;font-size:12px;letter-spacing:.3px;
-border-radius:999px;padding:4px 12px;margin:0 0 8px}
+.u-chip{display:inline-block;background:var(--verde);color:#04130A;font-weight:700;font-size:11px;letter-spacing:.3px;text-transform:none;
+border-radius:999px;padding:3px 10px;margin-left:10px;vertical-align:1px}
+.portada{position:relative;padding:4px 0 22px;margin-bottom:22px;border-bottom:1px solid var(--borde)}
+.portada::after{content:"";position:absolute;left:0;bottom:-2px;width:64px;height:3px;border-radius:3px;background:var(--verde)}
+.p-kicker{font-size:11px;font-weight:700;letter-spacing:1.6px;text-transform:uppercase;color:var(--verde-t)}
+.p-proyecto{font-size:34px;line-height:1.08;font-weight:800;letter-spacing:-.6px;margin:8px 0 4px}
+.p-titulo{margin:0;font-size:26px;line-height:1.2;font-weight:700;letter-spacing:-.3px;color:var(--verde-t)}
+.portada .periodo{font-size:15px;font-weight:600;margin-top:6px;color:var(--texto)}
+.portada .meta{margin-top:4px}
 .pu{padding:10px 0;border-bottom:1px solid var(--borde)}.pu:last-child{border-bottom:0}
 .pu-cab{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:14px}.pu-cab span{color:var(--texto2);font-size:12.5px}
 .pu-eq{font-size:11.5px;color:var(--texto2);margin-top:3px}.pu-eq b{color:var(--texto);font-weight:600}
@@ -725,7 +844,7 @@ table.limpia tfoot{display:table-row-group}
 .f-t{font-size:12px;font-weight:700;margin-right:4px}
 .chip{background:var(--suave);border-radius:999px;padding:5px 11px;font-size:11.5px;font-weight:600}
 .chip i{font-style:normal;font-weight:500;color:var(--texto2)}
-footer{break-before:avoid;page-break-before:avoid;display:flex;justify-content:space-between;color:var(--texto2);font-size:11px;margin-top:14px;padding-top:10px;border-top:1px solid var(--borde)}
+footer{break-before:avoid;page-break-before:avoid;display:flex;flex-wrap:wrap;gap:4px 16px;justify-content:space-between;color:var(--texto2);font-size:11px;margin-top:14px;padding-top:10px;border-top:1px solid var(--borde)}
 .barra{position:sticky;top:0;z-index:5;display:none;justify-content:center;gap:8px;padding:10px;background:var(--fondo)}
 .barra button{font:600 13px -apple-system,BlinkMacSystemFont,sans-serif;border:1px solid var(--borde);background:var(--papel);color:var(--texto);
 border-radius:999px;padding:7px 16px;cursor:pointer}
@@ -736,7 +855,7 @@ border-radius:999px;padding:7px 16px;cursor:pointer}
 .cifras{grid-template-columns:repeat(2,1fr)}.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.g-ancha{display:none}.g-angosta{display:block}.tj{padding:14px 12px}.equipo{grid-template-columns:repeat(2,minmax(0,1fr))}
 .avance2{flex-direction:column;align-items:stretch}.anillos{justify-content:center}.hoja.plano{padding:22px 16px}.cab h1{font-size:26px}.dos{grid-template-columns:1fr}.total{grid-template-columns:repeat(2,1fr)}.reparto{flex-direction:column}
 header{flex-direction:column-reverse}.cab{flex-direction:row;align-items:flex-start;gap:12px}.cab .logo{width:84px;flex:none}
-.cab h1{font-size:24px}.periodo{font-size:17px}.tj h2 small,h2 small{display:block;margin:3px 0 0}.kv5{grid-template-columns:repeat(2,1fr)}.logo{width:120px}table{font-size:11px}td,th{padding:7px 6px}.ocultar-movil{display:none}}
+.cab h1{font-size:24px}.periodo{font-size:17px}.p-proyecto{font-size:27px}.p-titulo{font-size:20px}.portada .periodo{font-size:14px}.tj h2 small,h2 small{display:block;margin:3px 0 0}.kv5{grid-template-columns:repeat(2,1fr)}.logo{width:120px}table{font-size:11px}td,th{padding:7px 6px}.ocultar-movil{display:none}}
 @page{size:A4;margin:11mm 0}
 @media print{html,body{background:var(--fondo-impresion)}.hoja{margin:0;max-width:none;box-shadow:none;border-radius:0;padding:12mm 13mm}
 .hoja.plano{padding:0 13mm}.barra{display:none}
@@ -857,9 +976,15 @@ def _pagina_resumen(datos, logo, completo=False):
     out = []
     meta = [datos["proyecto"] or "", texto_dias(datos) if t["dias"] else "", texto_semanas(datos["semanas"]),
             "generado " + datos["generado"].strftime("%d/%m/%Y %H:%M")]
-    chip_u = f'<div class="u-chip">{_e(datos["unidad"])}</div>' if datos.get("unidad") else ""
-    out.append(f'<header class="cab"><div>{chip_u}<h1><em>Reporte</em> {_e(datos["titulo"])}</h1>'
-               f'<div class="periodo">{_e(datos["periodo"])}</div>'
+    meta = [texto_dias(datos) if t["dias"] else "", "generado " + datos["generado"].strftime("%d/%m/%Y %H:%M")]
+    chip_u = f'<span class="u-chip">{_e(datos["unidad"])}</span>' if datos.get("unidad") else ""
+    tg = datos.get("titulo_grande") or titulo_grande(datos["titulo"])
+    periodo = texto_periodo(datos["desde"], datos["hasta"]) if datos.get("semanas_rep") else datos["periodo"]   # semanas: de qué fecha a qué fecha
+    periodo = periodo if periodo not in tg else ""
+    out.append(f'<header class="cab portada"><div class="p-izq"><div class="p-kicker">Reporte de data management{chip_u}</div>'
+               f'<div class="p-proyecto">{_e(datos.get("proyecto_bonito") or datos["proyecto"] or "Proyecto")}</div>'
+               f'<h1 class="p-titulo">{_e(tg)}</h1>'
+               + (f'<div class="periodo">{_e(periodo)}</div>' if periodo else "") +
                f'<div class="meta">{" · ".join(_e(x) for x in meta if x)}</div></div>{logo}</header>')
     for a in datos["avisos"]:
         out.append(f'<div class="aviso">{_e(a)}</div>')
@@ -1038,9 +1163,39 @@ def texto_semanas(semanas):
     if len(n) == 1:
         return n[0]
     a, b = n[0], n[-1]
-    if a.startswith("Semana ") and b.startswith("Semana "):
-        return f"Semanas {a[7:]} {'y' if len(n) == 2 else 'a'} {b[7:]}"
+    nums = [x[7:] for x in n if x.startswith("Semana ")]
+    if len(nums) == len(n) and all(x.isdigit() for x in nums):
+        k = [int(x) for x in nums]
+        if len(k) == 2:
+            return f"Semanas {k[0]} y {k[1]}"
+        if k == list(range(k[0], k[0] + len(k))):
+            return f"Semanas {k[0]} a {k[-1]}"
+        return "Semanas " + ", ".join(map(str, k[:-1])) + f" y {k[-1]}"
+    if len(n) == 2:
+        return f"{a} y {b}"
     return f"{a} a {b}"
+
+
+_MINUSCULAS = {"de", "del", "la", "el", "los", "las", "y", "en", "a", "con", "por", "para", "un", "una", "e", "o"}
+
+
+def proyecto_bonito(nombre):
+    """El nombre del proyecto para la portada: «PRIMERA PLANA - HIJO DE TIGRE» → «Primera Plana · Hijo de Tigre»; las siglas cortas
+    (HDT, AAZ, CODT) y los nombres escritos a gusto (con minúsculas) se dejan como están."""
+    partes = [x.strip() for x in re.split(r"\s+[-–—|]\s+|_", str(nombre or "")) if x.strip()]
+
+    def una(t):
+        if t != t.upper() or len(t.replace(" ", "")) <= 5:
+            return t
+        palabras = t.lower().split()
+        return " ".join(w if (k and w in _MINUSCULAS) else (w[:1].upper() + w[1:]) for k, w in enumerate(palabras))
+    return " · ".join(una(x) for x in partes)
+
+
+def titulo_grande(titulo):
+    """El título para leer en grande: «de todo el proyecto» → «Todo el proyecto», «del 13 al 16 oct 2026» → «Del 13 al 16 oct 2026»."""
+    t = re.sub(r"^de todo", "todo", str(titulo or "").strip())
+    return t[:1].upper() + t[1:]
 
 
 def a_html(datos, modo="claro", logos=None, barra=True, completo=False):
@@ -1065,7 +1220,7 @@ def a_html(datos, modo="claro", logos=None, barra=True, completo=False):
     out += _pagina_resumen(datos, logo, completo)
     fuente = {"FO-06": "estatus de tarjetas (FO-06)", "FO-07": "estadístico (FO-07)"}.get(datos["fuente"], "tus hojas")
     out.append(f'<footer><span>Estadístico FilmFlow · datos de tu {_e(fuente)} · 1 TB = 1.000 GB</span>'
-               f'<span>{_e(datos["proyecto"])}</span></footer></div>')
+               f'<span>{_e(datos.get("proyecto_bonito") or datos["proyecto"])}</span></footer></div>')
     nombre = f'Reporte {datos["titulo"]} · {datos["proyecto"]}'
     return (f'<!doctype html><html lang="es" data-tema="{"oscuro" if modo == "oscuro" else "claro"}"><head><meta charset="utf-8">'
             f'<meta name="viewport" content="width=device-width,initial-scale=1"><title>{_e(nombre)}</title>'

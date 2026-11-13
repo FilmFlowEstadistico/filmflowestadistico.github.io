@@ -462,8 +462,14 @@ function dibujarGrafico(g) {
 function prepararGraficos(raiz) {
   (raiz || document).querySelectorAll(".grafico[data-g]").forEach((g) => { dibujarGrafico(g); if (vigiaGrafico) vigiaGrafico.observe(g); });
 }
+function centrarRueda(raiz) {             // la semana elegida (la última) queda en el centro de la rueda, sin mover la página
+  (raiz || document).querySelectorAll(".rueda").forEach((r) => {
+    const sel = r.querySelectorAll(".sem.sel"), el = sel[sel.length - 1]; if (!el) return;
+    r.scrollLeft = el.offsetLeft - (r.clientWidth - el.offsetWidth) / 2;
+  });
+}
 function posprocesar() {
-  prepararGraficos(vista);
+  prepararGraficos(vista); centrarRueda(vista);
   vista.querySelectorAll("form").forEach(alternarTipo);
   $("#btn-actualizar").style.display = actual === "resumen" ? "" : "none";
   if (actual === "app") { pintarDescanso(); pintarVersion(); }
