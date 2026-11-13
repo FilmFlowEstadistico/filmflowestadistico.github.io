@@ -165,6 +165,32 @@ def estado_cuenta(carpeta=CARPETA):
     return {"conectado": True, "correo": correo, "motivo": ""}
 
 
+def _pagina_sesion():
+    """La página que se ve en el navegador al terminar de iniciar sesión (sesion_lista.html, con la identidad de la app). Si no está,
+    el texto de siempre. Hace que la librería de Google la entregue como página (ella solo manda texto plano)."""
+    try:
+        import google_auth_oauthlib.flow as _flujo
+        import wsgiref.util
+        if not getattr(_flujo._RedirectWSGIApp, "_ff_html", False):
+            original = _flujo._RedirectWSGIApp.__call__
+
+            def llamar(self, environ, start_response):
+                if str(self._success_message).lstrip()[:15].lower() != "<!doctype html>":
+                    return original(self, environ, start_response)
+                start_response("200 OK", [("Content-type", "text/html; charset=utf-8")])
+                self.last_request_uri = wsgiref.util.request_uri(environ)
+                return [self._success_message.encode("utf-8")]
+            _flujo._RedirectWSGIApp.__call__ = llamar
+            _flujo._RedirectWSGIApp._ff_html = True
+        base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+        for ruta in (base / "sesion_lista.html", Path(__file__).resolve().parent / "sesion_lista.html"):
+            if ruta.exists():
+                return ruta.read_text(encoding="utf-8")
+    except Exception:
+        pass
+    return "Listo, ya puedes volver a la aplicación."
+
+
 def conectar_cuenta(carpeta=CARPETA, extra=()):
     """Abre el navegador para que la persona elija su cuenta de Google y dé permiso. `extra`: permisos de más (p. ej. compartir)."""
     g = _google()
@@ -173,8 +199,7 @@ def conectar_cuenta(carpeta=CARPETA, extra=()):
         raise ErrorRegistro(FALTA_LLAVE)
     try:
         flujo = g.InstalledAppFlow.from_client_secrets_file(str(llave), PERMISOS + [x for x in extra if x not in PERMISOS])
-        argumentos = dict(port=0, prompt="select_account",
-                          success_message="Listo, ya puedes volver a la aplicación.")
+        argumentos = dict(port=0, prompt="select_account", success_message=_pagina_sesion())
         try:
             creds = flujo.run_local_server(timeout_seconds=240, **argumentos)   # no se queda esperando para siempre
         except TypeError:

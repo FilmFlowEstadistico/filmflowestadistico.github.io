@@ -1,4 +1,4 @@
-const VERSION='ff-1794528997';
+const VERSION='ff-1794529505';
 const ARCHIVOS=[
   ['app.js','517bea79e4b5a89f'],
   ['assets/fondo_bienvenida.jpg','8a31a09a70f6b4cb'],
@@ -22,7 +22,7 @@ const ARCHIVOS=[
   ['py/movil_html.py','6e0594403da14d2b'],
   ['py/registro_core.py','1b0cd08b635362b5'],
   ['py/registro_diario.py','f765715d350bf62c'],
-  ['py/registro_google.py','c59a150d1f361066'],
+  ['py/registro_google.py','7e6889bcb5c36656'],
   ['py/reporte_core.py','8835e53ed9d5a9d0'],
   ['py/resumen_core.py','ee8332a788330809'],
   ['py/sync_core.py','a64d7a23ded4ffc2'],
@@ -38,7 +38,7 @@ const ARCHIVOS=[
   ['vendor/pyodide/pyodide.js','b4cb23a53aba19c2'],
   ['vendor/pyodide/pyodide.mjs','04c052c815abb0bf'],
   ['vendor/pyodide/python_stdlib.zip','16611534726e5d8a'],
-  ['version.js','dc308418569ddd6f'],
+  ['version.js','4d0722f38dd604b8'],
   ['worker.js','7d0ee7ac107afa5c'],
 ];
 // Al instalar una versión: los archivos con la MISMA huella que en la versión guardada se copian de ella (sin internet); los demás se
