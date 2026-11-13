@@ -280,8 +280,11 @@ function cargarGIS() {
 }
 let errorConexion = "";
 const PERMISO_DRIVE = "https://www.googleapis.com/auth/drive.file";
+// include_granted_scopes en false: Google NO junta los permisos que esa cuenta dio antes a otro uso del mismo proyecto de Google Cloud
+// (p. ej. youtube.upload para subir el video de la verificación): «drive.file» y «youtube.upload» no se pueden pedir juntos y Google
+// bloqueaba la entrada (Error 400: invalid_request). Se pide siempre la lista completa (PERMISOS, + drive al compartir).
 function crearCliente(scope) {
-  return google.accounts.oauth2.initTokenClient({ client_id: CFG.clientId, scope, callback: () => {}, error_callback: () => {} });
+  return google.accounts.oauth2.initTokenClient({ client_id: CFG.clientId, scope, include_granted_scopes: false, callback: () => {}, error_callback: () => {} });
 }
 // Importante: en el iPhone la ventana de Google solo se abre si se pide en el MISMO toque del dedo.
 // Por eso GIS se carga desde que arranca la app y aquí no hay ningún «await» antes de pedir el permiso.
@@ -322,7 +325,7 @@ function irAGoogle(scope) {
   const estado = Math.random().toString(36).slice(2) + Date.now().toString(36);
   guardar("ff-oauth", JSON.stringify({ e: estado, scope, p: actual }));
   const q = new URLSearchParams({ client_id: CFG.clientId, redirect_uri: urlDeRegreso(), response_type: "token", scope,
-    include_granted_scopes: "true", prompt: "select_account", state: estado });
+    include_granted_scopes: "false", prompt: "select_account", state: estado });
   location.href = "https://accounts.google.com/o/oauth2/v2/auth?" + q.toString();
 }
 async function regresoDeGoogle() {
@@ -360,7 +363,9 @@ async function pedirToken(interactivo) {
     try { await cargarGIS(); } catch (e) { errorConexion = "red"; return null; }
     errorConexion = "toca_otra_vez"; return null;
   }
-  let t = await pedirTokenYa(interactivo, PERMISOS);
+  const DRIVE_TODO = "https://www.googleapis.com/auth/drive";                   // si ya dio el permiso de compartir, se sigue pidiendo
+  const conCompartir = (sesion && (sesion.permisos || "").split(" ").includes(DRIVE_TODO)) ? " " + DRIVE_TODO : "";
+  let t = await pedirTokenYa(interactivo, PERMISOS + conCompartir);
   if (!t && interactivo && /invalid_scope|scope/i.test(errorConexion)) {          // Google no aceptó el permiso de Drive: se entra sin él
     t = await pedirTokenYa(interactivo, PERMISOS.split(" ").filter((x) => !x.includes("drive")).join(" "));
   }

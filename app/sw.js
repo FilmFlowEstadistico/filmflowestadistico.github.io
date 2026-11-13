@@ -1,6 +1,6 @@
-const VERSION='ff-1794532202';
+const VERSION='ff-1794533011';
 const ARCHIVOS=[
-  ['app.js','517bea79e4b5a89f'],
+  ['app.js','6712aa732ba69f66'],
   ['assets/fondo_bienvenida.jpg','8a31a09a70f6b4cb'],
   ['assets/icono-180.png','1b2c2621dbd1f412'],
   ['assets/icono-192.png','cef4a782be966592'],
@@ -38,7 +38,7 @@ const ARCHIVOS=[
   ['vendor/pyodide/pyodide.js','b4cb23a53aba19c2'],
   ['vendor/pyodide/pyodide.mjs','04c052c815abb0bf'],
   ['vendor/pyodide/python_stdlib.zip','16611534726e5d8a'],
-  ['version.js','8cef37c546bf758c'],
+  ['version.js','fafa04e5ba9793cb'],
   ['worker.js','7d0ee7ac107afa5c'],
 ];
 // Al instalar una versión: los archivos con la MISMA huella que en la versión guardada se copian de ella (sin internet); los demás se

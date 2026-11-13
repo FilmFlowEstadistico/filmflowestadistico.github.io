@@ -10,16 +10,16 @@
   "tamano": 40104050,
   "sha256": "fd5bac2141de6b127b5c08ee167e56acf57523a55cdd0bb63d9d1e0907a0e809"
  },
- "dmg_arm64": {
-  "archivo": "Estadistico_FilmFlow.dmg",
-  "url": "https://github.com/FilmFlowEstadistico/filmflowestadistico.github.io/releases/download/v1.1.10/Estadistico_FilmFlow.dmg",
-  "tamano": 51687619
- },
  "mac_intel": {
   "archivo": "Estadistico_FilmFlow_Mac_Intel.zip",
   "url": "https://github.com/FilmFlowEstadistico/filmflowestadistico.github.io/releases/download/v1.1.10/Estadistico_FilmFlow_Mac_Intel.zip",
   "tamano": 41870540,
   "sha256": "c968e5d4a2a90e078abd3a4eb3d89067bd2604e75416052a26f904bab2092f36"
+ },
+ "dmg_arm64": {
+  "archivo": "Estadistico_FilmFlow.dmg",
+  "url": "https://github.com/FilmFlowEstadistico/filmflowestadistico.github.io/releases/download/v1.1.10/Estadistico_FilmFlow.dmg",
+  "tamano": 51687619
  },
  "dmg_intel": {
   "archivo": "Estadistico_FilmFlow_Intel.dmg",
