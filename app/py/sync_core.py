@@ -243,7 +243,17 @@ def _dar_permiso(http, sid, correo, rol, que, avisar=False, mensaje=""):
     if codigo == 400 and not avisar and "notif" in (texto or "").lower():     # correo sin cuenta de Google: solo se puede avisando
         return _dar_permiso(http, sid, correo, rol, que, avisar=True)
     if codigo == 0 or codigo >= 400:
-        raise _error_drive(codigo, texto, que)
+        raise _error_de_permiso(http, sid, codigo, texto, que)
+
+
+def _error_de_permiso(http, sid, codigo, texto, que):
+    """Con el permiso normal (drive.file) Drive responde «no existe» (404) a TODA hoja que la app no creó, aunque la cuenta sea dueña.
+    Si Hojas de cálculo sí la abre, lo que falta es el permiso para compartir (no es que la cuenta no la vea)."""
+    if codigo == 404:
+        c2, _t = http("GET", f"{SHEETS}/{sid}?fields=spreadsheetId", None)
+        if c2 == 200:
+            return _error_drive(403, "insufficient authentication scopes", que)
+    return _error_drive(codigo, texto, que)
 
 
 def _quitar_permiso(http, sid, correo, que):
@@ -251,7 +261,7 @@ def _quitar_permiso(http, sid, correo, que):
                                                      "pageSize": 100})
     codigo, texto = http("GET", url, None)
     if codigo == 0 or codigo >= 400:
-        raise _error_drive(codigo, texto, que)
+        raise _error_de_permiso(http, sid, codigo, texto, que)
     for perm in (json.loads(texto or "{}").get("permissions") or []):
         if (perm.get("emailAddress") or "").lower() == correo.lower() and perm.get("role") != "owner":
             c2, t2 = http("DELETE", f"{DRIVE}/{sid}/permissions/{perm['id']}?supportsAllDrives=true", None)
