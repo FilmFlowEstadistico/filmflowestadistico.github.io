@@ -889,7 +889,8 @@ def html_plan():
     r = plan["reporte"]
     escrito = plan.get("escrito", False)
     if not escrito:
-        hay_aviso = any(t == "aviso" for t, _ in plan["validacion"]) or plan["avisos"] or plan["sin_leer"] or plan.get("est_error")
+        confirma = list((plan.get("reporte") or {}).get("confirmaciones") or [])        # cada cámara y el sonido, confirmados con varias partes del PDF
+        hay_aviso = any(t == "aviso" for t, _ in list(plan["validacion"]) + confirma) or plan["avisos"] or plan["sin_leer"] or plan.get("est_error")
         checks = [("info", f"Se agregó el rollo nuevo «{n}» a tus ajustes.") for n in plan["nuevos"]]
         if plan["sin_leer"]:
             muestra = " | ".join(plan["sin_leer"][:3]) + ("…" if len(plan["sin_leer"]) > 3 else "")
@@ -898,7 +899,7 @@ def html_plan():
         if plan.get("ya06"):
             checks.append(("info", f"{r['dia']} ya está en «{plan['titulo']}»: "
                            + ("es exactamente igual al reporte." if est_["06"] == "igual" else "tiene diferencias con el reporte (mira arriba).")))
-        checks += list(plan["validacion"]) + [("aviso", a_) for a_ in plan["avisos"]]
+        checks += confirma + list(plan["validacion"]) + [("aviso", a_) for a_ in plan["avisos"]]
         hay_destino = plan["w06"] or plan["w07"]
         cr = plan.get("cruce")
         if cr and cr["hallazgos"]:
@@ -1039,11 +1040,7 @@ def leer_formulario_rollo(p, f):
     color = color.upper()
     if color and color in {u.upper() for u in f.get("usados", []) if u}:
         return None, "Ese color ya lo tienes aplicado a otro rollo. Elige otro color (los que tienen ✕ ya están usados)."
-    def clave(pt):
-        letra = rc.letra_de_camara([pt])
-        return "cam:" + letra if letra else pt
-    ya = {clave(pt) for pt in f.get("patrones_usados", [])}
-    repetidos = [pt for pt in patrones if clave(pt) in ya]
+    repetidos = rc.patrones_repetidos(patrones, f.get("patrones_usados", []), tipo, nombre)
     if repetidos:
         return None, f"Ya tienes un rollo que reconoce «{repetidos[0]}». Edítalo en lugar de agregar otro."
     ciclo = None
@@ -1110,31 +1107,18 @@ def rd_traducir(texto):
     return texto.translate(str.maketrans({**rd.PUA, "": "-"}))
 
 
-def _resolver_sin_reconocer(cfg, reporte, nuevos):
+def _resolver_sin_reconocer(cfg, reporte, nuevos, valores=None):
     """Si el PDF trae un BIN que no está en los ajustes, devuelve el formulario que pide configurarlo (o None si todo se reconoce)."""
-    _, sin = rc.clasificar(reporte, cfg)
-    if not sin:
+    sug = rc.rollo_nuevo_sugerido(cfg, reporte, valores)
+    if not sug:
         return None
-    nombre = sorted(b["nombre"] for b in sin)[0]
-    es_audio = bool(next(b for b in sin if b["nombre"] == nombre).get("audio"))
-    tipo, letra, otro = rc.adivinar_tipo(nombre)
-    if es_audio and tipo != "sonido":
-        tipo, letra, otro = "otro", "", rc.patron_corto(nombre)
-    parecidos = sorted(b["nombre"] for b in sin if rc.adivinar_tipo(b["nombre"]) == rc.adivinar_tipo(nombre) and bool(b.get("audio")) == es_audio)
-    que = rc.que_es_rollo(tipo, letra, nombre)
-    if es_audio and tipo == "otro":
-        que = "AUDIO (el reporte lo lista como grabación de audio). Llámalo «Sonido» para que cuente como audio"
-    ejemplos = ", ".join(parecidos[:3]) + ("…" if len(parecidos) > 3 else "")
-    ayuda = (f"Este PDF trae {que}, y todavía no está en tus rollos.\nBIN encontrados: {ejemplos}\n"
-             "Complétalo para agregarlo: después te muestro cómo quedaría en la hoja antes de escribir.")
-    idx_cam = [i for i, g in enumerate(cfg["grupos"]) if rc.letra_de_camara(g["patrones"])]
-    base = {"tipo": tipo, "letra": letra, "otro": otro}
-    if es_audio and tipo == "otro":
-        base["nombre"] = "Sonido"
-    return {"accion": "guardar_rollo_nuevo", "titulo": "Apareció un rollo nuevo en el PDF", "base": base, "ayuda": ayuda,
-            "nombres_posicion": [g["nombre"] for g in cfg["grupos"]], "pos_camara": (idx_cam[-1] + 1) if idx_cam else 0,
-            "usados": [g["color"] for g in cfg["grupos"]], "patrones_usados": [p for g in cfg["grupos"] for p in g["patrones"]],
-            "datos": {"nombre_bin": nombre, "es_audio": es_audio, "ejemplos": ejemplos}}
+    ayuda = (f"Este PDF trae {sug['que']}, y todavía no está en tus rollos.\nBIN encontrados: {sug['ejemplos']}\n"
+             + ("Ya está en tu hoja: copié su rental y su equipo. " if sug["base"].get("rental") else "")
+             + "Complétalo para agregarlo: después te muestro cómo quedaría en la hoja antes de escribir.")
+    return {"accion": "guardar_rollo_nuevo", "titulo": "Apareció un rollo nuevo en el PDF", "base": sug["base"], "ayuda": ayuda,
+            "nombres_posicion": [g["nombre"] for g in cfg["grupos"]], "pos_camara": sug["pos_camara"],
+            "usados": [g["color"] for g in cfg["grupos"]], "patrones_usados": rc.patrones_en_uso(cfg),
+            "datos": {"nombre_bin": sug["nombre_bin"], "es_audio": sug["es_audio"], "cam": sug["cam"], "ejemplos": sug["ejemplos"]}}
 
 
 def guardar_rollo_nuevo(p):
@@ -1149,8 +1133,8 @@ def guardar_rollo_nuevo(p):
     g = rc.agregar_grupo(prueba, **valor)
     prueba["grupos"].remove(g)
     prueba["grupos"].insert(lugar, g)
-    nombre, es_audio = f["datos"]["nombre_bin"], f["datos"]["es_audio"]
-    if rc.grupo_de(nombre, prueba, audio=True if es_audio else None) is not g:
+    nombre = f["datos"]["nombre_bin"]
+    if not rc.rollo_nuevo_sirve(prueba, g, f["datos"]):
         f["error"] = f"Con lo que elegiste no se reconoce «{nombre}». Inténtalo de nuevo."
         return pagina_registrar()
     rc.guardar_config(prueba)
@@ -1208,7 +1192,7 @@ def revisar(p):
             problema_unidad = rc.revisar_unidad(reporte, pestana)
             if problema_unidad:
                 raise ErrorRegistro(problema_unidad)
-        formulario = _resolver_sin_reconocer(cfg, reporte, nuevos)
+        formulario = _resolver_sin_reconocer(cfg, reporte, nuevos, datos.get("valores"))
         if formulario:
             E["formulario"], E["pagina_form"] = formulario, "registrar"
             return pagina_registrar()
@@ -2014,12 +1998,12 @@ def importar_aceptar(p):
 # AJUSTES (del proyecto y de la app)
 # =============================================================================
 def _etiqueta_tipo(g):
-    tipo, letra, _otro = rc.tipo_de_patrones(g["patrones"])
+    tipo, letra, _otro = rc.tipo_de_grupo(g)
     return {"camara": f"Cámara (letra {letra})", "sonido": "Sonido", "drones": "Drones", "celulares": "Celulares"}.get(tipo, "BIN empieza con " + ", ".join(g["patrones"]))
 
 
 def _base_de_rollo(g):
-    tipo, letra, otro = rc.tipo_de_patrones(g["patrones"])
+    tipo, letra, otro = rc.tipo_de_grupo(g)
     return {"tipo": tipo, "letra": letra, "otro": otro, "nombre": g["nombre"], "rental": g["rental"], "modelo": g["modelo"],
             "ciclo_mag": g["ciclo_mag"], "color": g["color"], "avisar_si_falta": g["avisar_si_falta"], "editando": True}
 
@@ -2232,7 +2216,7 @@ def agregar_rollo(p):
     idx_cam = [i for i, g in enumerate(cfg["grupos"]) if rc.letra_de_camara(g["patrones"])]
     E["formulario"] = {"accion": "guardar_rollo", "titulo": "Agregar rollo nuevo", "base": {"tipo": "camara"}, "nombres_posicion": [g["nombre"] for g in cfg["grupos"]],
                        "pos_camara": (idx_cam[-1] + 1) if idx_cam else 0, "usados": [g["color"] for g in cfg["grupos"]],
-                       "patrones_usados": [pp for g in cfg["grupos"] for pp in g["patrones"]], "datos": {}}
+                       "patrones_usados": rc.patrones_en_uso(cfg), "datos": {}}
     E["pagina_form"] = "ajustes"
     return {"ir": "ajustes", "recargar": True}
 
@@ -2244,7 +2228,7 @@ def editar_rollo(p):
         return pagina_ajustes()
     E["formulario"] = {"accion": "guardar_rollo", "titulo": "Editar «" + cfg["grupos"][i]["nombre"] + "»", "base": _base_de_rollo(cfg["grupos"][i]),
                        "usados": [g["color"] for j, g in enumerate(cfg["grupos"]) if j != i],
-                       "patrones_usados": [pp for j, g in enumerate(cfg["grupos"]) if j != i for pp in g["patrones"]], "datos": {"id": p["id"]}}
+                       "patrones_usados": rc.patrones_en_uso(cfg, i), "datos": {"id": p["id"]}}
     E["pagina_form"] = "ajustes"
     return {"ir": "ajustes", "recargar": True}
 

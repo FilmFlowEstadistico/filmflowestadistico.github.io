@@ -297,15 +297,25 @@ def patron_a_regex(patron):
     return re.compile("^" + texto, re.IGNORECASE)
 
 
-def grupo_de(nombre, cfg, audio=None, recientes=None):
+def grupo_de(nombre, cfg, audio=None, recientes=None, cam=""):
     """El grupo cuyo patrón (el más específico) coincide con el nombre, o None.
     `audio`: lo que se sabe de ese BIN. True = es audio (se prefiere un rollo de Sonido); False = no lo es (se prefiere un rollo
-    que no sea de Sonido); None = no se sabe: se prefiere uno que no sea de Sonido (así una «D» de dron no cae en el sonido)."""
+    que no sea de Sonido); None = no se sabe: se prefiere uno que no sea de Sonido (así una «D» de dron no cae en el sonido).
+    Si ningún patrón coincide y NO es audio: el rollo de la cámara con la misma LETRA (la que dice el PDF en «Camera(s)» —`cam`— o
+    la del nombre): «Cámara C» guardada como «C_» también reconoce «C001_1112YE», y una tarjeta con un nombre puesto a mano
+    («DIA4_TARJETA_2») va a la cámara que el PDF dice."""
     candidatos = []
     for orden, g in enumerate(cfg["grupos"]):
         for p in g["patrones"]:
             if patron_a_regex(p).match(nombre):
                 candidatos.append((-len(p), orden, g))
+    if not candidatos and not audio:
+        k = identificar_bin(nombre)                    # manda la letra del NOMBRE («I005» es de la I aunque el PDF diga cámara A:
+        letra = (k["letra"] if k and k["tipo"] == "camara" else "") or (letra_de_cam(cam) if not (k and k["tipo"] != "camara") else "")
+        if letra:                                      # así numera el iPhone sus clips); sin letra en el nombre, la del PDF
+            for orden, g in enumerate(cfg["grupos"]):
+                if not grupo_es_sonido(g) and letra_de_camara(g["patrones"]) == letra:
+                    candidatos.append((0, orden, g))
     if not candidatos:
         return None
     de_sonido = [t for t in candidatos if grupo_es_sonido(t[2])]
@@ -340,6 +350,13 @@ def patron_de_camara(letra):
     return f"{letra}_"
 
 
+def patrones_de_camara(letra):
+    """Una cámara con letra se reconoce con CUALQUIER forma de nombrar la tarjeta: «C_0001_1IH7» (ARRI ALEXA 35) y «C001_1112YE»
+    (RED, Sony, Canon, ARRI clásica, Blackmagic…): la letra y un guion bajo, o la letra y un número."""
+    base = patron_de_camara(letra)
+    return [base, base[0] + "#"]
+
+
 def normalizar_patrones(texto):
     """Lo que escribió la persona en «Empieza con» -> lista de patrones.
     Una sola letra (M) significa «cámara M»: los BIN que empiezan con M_.
@@ -356,10 +373,17 @@ def normalizar_patrones(texto):
     return salida
 
 
+_PATRON_DE_LETRA = re.compile(r"[A-Za-z](_(#{1,4}_?)?|#{1,4}_?)")
+
+
 def letra_de_camara(patrones):
-    """Si el rollo es una cámara con letra (M_ o A_####_) devuelve la letra; si no, None."""
-    if len(patrones) == 1 and re.fullmatch(r"[A-Za-z]_(####_)?", patrones[0]):
-        return patrones[0][0].upper()
+    """Si el rollo es una cámara con letra (M_, A_####_, Y#, C### o varias de esas formas con la MISMA letra) devuelve la letra;
+    si no, None. Los tipos fijos (drones D###_, celulares I###/J###) no son «cámara con letra»."""
+    patrones = list(patrones or [])
+    if not patrones or patrones in (PATRONES_DRONES, PATRONES_CELULARES):
+        return None
+    if all(_PATRON_DE_LETRA.fullmatch(str(x)) for x in patrones) and len({str(x)[0].upper() for x in patrones}) == 1:
+        return str(patrones[0])[0].upper()
     return None
 
 
@@ -393,7 +417,7 @@ NOMBRE_POR_TIPO = {"sonido": "Sonido", "drones": "Drones", "celulares": "Celular
 def patrones_de_tipo(tipo, letra="", otro=""):
     """Cómo se reconoce un rollo según su tipo. Cámara = solo la letra."""
     if tipo == "camara":
-        return [patron_de_camara(letra)]
+        return patrones_de_camara(letra)
     if tipo == "sonido":
         return list(PATRONES_SONIDO)
     if tipo == "drones":
@@ -413,24 +437,146 @@ def tipo_de_patrones(patrones):
 
 @functools.lru_cache(maxsize=1024)
 def _tipo_de_patrones(patrones):                      # con memoria: se llama miles de veces al leer una hoja larga
-    letra = letra_de_camara(patrones)
-    if letra:
-        return "camara", letra, ""
     for tipo, fijos in (("sonido", PATRONES_SONIDO), ("drones", PATRONES_DRONES), ("celulares", PATRONES_CELULARES)):
         if list(patrones) == fijos:
             return tipo, "", ""
+    letra = letra_de_camara(patrones)
+    if letra:
+        return "camara", letra, ""
     return "otro", "", ", ".join(patrones)
 
 
 # Tarjetas de sonido que se llaman por lo que son: Sound, SOUND_001, Audio, Audio 2, Sonido, SND_01, Snd…
 ES_NOMBRE_DE_SONIDO = re.compile(r"(?i)^\s*(sound|audio|sonido|snd)(?![a-z])")
 
+# -----------------------------------------------------------------------------------------------------------------------------
+# CÓMO NOMBRA CADA MARCA SUS TARJETAS (rollo / reel / mag). Investigado el 13/11/2026 en los manuales de ARRI, RED, Sony, Canon,
+# Blackmagic, Panasonic, Nikon, DJI, GoPro, Insta360, Sound Devices y Zoom. Cada entrada: (marca, tipo, expresión, qué grupo trae la
+# letra de la cámara, qué grupo trae el número de rollo). Se prueban EN ORDEN: la primera que coincide gana, de lo más preciso a lo
+# más general. El nombre que se compara ya viene sin lo que agregan Silverstack o el DIT al final («_hde», «_CINE», «_1», « 2»).
+#   tipo: camara (cine, con letra) · dron · accion (GoPro, Insta360) · celular · foto (cámara de fotos que graba video) · sonido
+# -----------------------------------------------------------------------------------------------------------------------------
+_FAMILIAS = [(m, t, re.compile(x, re.IGNORECASE), gl, gr) for m, t, x, gl, gr in (
+    # ---- sonido ----
+    ("Sound Devices (carpeta del día)", "sonido", r"^\d{2}Y\d{2}M\d{2}", None, None),                   # 26Y11M12, 26Y11M12_AMB
+    ("sonido (por su nombre)", "sonido", r"^(sound|audio|sonido|snd|wav|amb|ambiente|ambientes|wildtrack|wt|portatil|zoom|tascam|"
+                                        r"cantar|nagra|zaxcom|scorpio|mixpre|sr|aud)(?![a-z])", None, None),
+    ("sonido (por fecha)", "sonido", r"^\d{1,2}[-_ ][a-z]{3}[-_ ]\d{1,2}$", None, None),                # 10-OCT-28
+    ("Zoom / Tascam (fecha y número)", "sonido", r"^\d{6}_\d{3,4}$", None, None),                      # 261112_001
+    # ---- cine, con letra de cámara ----
+    ("ARRI ALEXA 35 / 265", "camara", r"^([A-Z])_(\d{4})(?:_([A-Z0-9]{4}))?$", 1, 2),                    # A_0010_1IB7
+    ("ARRI ALEXA (Mini, LF, AMIRA)", "camara", r"^([A-Z])(\d{3})R([A-Z0-9]{3,4})$", 1, 2),              # A001R1JK
+    ("RED / DJI Ronin 4D / Nikon ZR", "camara", r"^([A-Z])(\d{3})_(\d{4})([A-Z0-9]{2})$", 1, 2),        # C001_1112YE (mes y día + 2 al azar)
+    ("Blackmagic", "camara", r"^([A-Z])(\d{3})_(\d{8})$", 1, 2),                                       # A001_08151512
+    ("Sony / Canon / Panasonic (cine)", "camara", r"^([A-Z])(\d{3})C(\d{3})?([A-Z0-9_]*)$", 1, 2),      # A001C001_230101AB, A168CUSW
+    ("cámara de cine (letra, rollo y código)", "camara", r"^([A-Z])(\d{3})(?=[A-Z0-9]{0,3}[A-Z])([A-Z0-9]{4})$", 1, 2),   # A231APW8
+    # ---- sin letra de cámara ----
+    ("DJI (cámara con letra dentro)", "dron", r"^(?:dji|mavic|inspire|osmo|action|avata|dron|drone)_?\d{1,4}_([A-Z])(\d+)", 1, 2),   # DJI_001_H10
+    ("DJI", "dron", r"^(dji|mavic|inspire|drone?|dron|avata|fpv|phantom|air ?\d)(?![a-z])", None, None),
+    ("GoPro", "accion", r"^(gopro|gopr|hero(?![a-z])|g[hxsl]\d{6}|gp\d{6}|\d{3}gopro)", None, None),
+    ("Insta360", "accion", r"^(insta|(pro_)?(vid|lrv|img)_\d{8}_\d{6}_\d{2}_\d{3})", None, None),
+    ("iPhone", "celular", r"^(iphone|ipad|img_\d{4}|\d{3}apple)", None, None),
+    ("celular", "celular", r"^(celular|movil|telefono|phone|android|samsung|galaxy|pixel|xiaomi|huawei|pxl_\d{8}|vid_\d{8}|"
+                           r"\d{8}_\d{6}$)(?![a-z])", None, None),
+    ("cámara de fotos (Nikon, Fuji, Canon, Sony, Lumix)", "foto", r"^(dsc[fn_]?\d{4}|_dsc\d{4}|mvi_\d{4}|p\d{7}|"
+                                                                  r"\d{3}(nikon|canon|_fuji|_pana|msdcf)|ncz_|fotos?(?![a-z])|stills?(?![a-z]))", None, None),
+    # ---- lo general: una letra (o letra y guion) y un número = la cámara de esa letra ----
+    ("cámara con letra", "camara", r"^([A-Z])_(\d{1,5})(?!\d)", 1, 2),                                   # E_0003_x
+    ("cámara con letra", "camara", r"^([A-Z])(\d{1,5})(?!\d)", 1, 2),                                    # Y001_1028BD, N004, M001L
+)]
+_COLA_DE_NOMBRE = re.compile(r"(?i)([_ -](hde|cine|ocn|raw|prores|proxy|r3d|mxf|copy|copia|bis|\d{1,2}))+$")
 
-def adivinar_tipo(nombre_bin):
-    """Qué parece ser un BIN que no conocemos: (tipo, letra, otro)."""
+
+@functools.lru_cache(maxsize=4096)
+def identificar_bin(nombre):
+    """Qué es una tarjeta por la forma de su nombre: {marca, tipo, letra, rollo} o None si no se parece a nada conocido.
+    «A_0010_1IB7_hde» → ARRI ALEXA 35, cámara A, rollo 10 · «C001_1112YE» → RED, cámara C, rollo 1 · «26Y11M12_AMB» → sonido."""
+    t = str(nombre or "").strip()
+    if not t:
+        return None
+    limpio = _COLA_DE_NOMBRE.sub("", t) or t
+    for intento in ((t, limpio) if limpio != t else (t,)):
+        for marca, tipo, rx, gl, gr in _FAMILIAS:
+            m = rx.match(intento)
+            if not m:
+                continue
+            if marca == "cámara con letra" and intento is t and limpio != t:
+                break                                    # se mira primero el nombre limpio: puede ser de una marca precisa
+            letra = m.group(gl).upper() if gl else ""
+            try:
+                rollo = int(m.group(gr)) if gr else None
+            except (TypeError, ValueError):
+                rollo = None
+            return {"marca": marca, "tipo": tipo, "letra": letra, "rollo": rollo}
+    return None
+
+
+def tipo_de_grupo(g):
+    """(tipo, letra, otro) de un rollo de Ajustes para mostrarlo o editarlo. Un rollo de SONIDO nunca es «cámara con letra» aunque se
+    reconozca con «D#» (grabadora que nombra sus carpetas D001, D002…)."""
+    tipo, letra, otro = tipo_de_patrones(g["patrones"])
+    if tipo == "camara" and grupo_es_sonido(g):
+        return "otro", "", ", ".join(g["patrones"])
+    return tipo, letra, otro
+
+
+def patrones_en_uso(cfg, menos=None):
+    """Las formas de reconocer que ya usan los rollos (para no repetirlas al crear o editar uno; `menos` = posición del que se edita).
+    Las de los rollos de sonido van marcadas: «Sonido» con «D#» no impide crear la «Cámara D»."""
+    return [("sonido:" + p if grupo_es_sonido(g) else p) for j, g in enumerate(cfg["grupos"]) if j != menos for p in g["patrones"]]
+
+
+def patrones_repetidos(patrones, usados, tipo="", nombre=""):
+    """Los patrones del rollo que se está guardando que YA usa otro rollo. Un rollo de sonido solo choca con otro de sonido (y una
+    cámara con otra cámara): «Sonido» con «D#» y «Cámara D» pueden convivir (el PDF dice cuál tarjeta es audio)."""
+    es_sonido = tipo == "sonido" or es_nombre_de_sonido(nombre)
+    ya = {clave_de_patron(u) for u in usados}
+    return [x for x in patrones if (("sonido:" + str(x)) if es_sonido else clave_de_patron(x)) in ya]
+
+
+def clave_de_patron(p):
+    """Con qué se compara un patrón para saber si ya está usado: todas las formas de una cámara con letra son la misma («cam:C»)."""
+    p = str(p)
+    if p.startswith("sonido:"):
+        return p
+    letra = letra_de_camara([p])
+    return "cam:" + letra if letra else p
+
+
+def letra_de_cam(cam):
+    """La letra que el PDF pone en la columna «Camera(s)» del BIN: «A_» → A, «C» → C. Varias cámaras o nada → ''."""
+    t = str(cam or "").strip().rstrip("_")
+    return t.upper() if len(t) == 1 and t.isalpha() else ""
+
+
+def letra_de_bin(nombre, cam=""):
+    """La letra de la cámara de un BIN: la que trae el nombre de la tarjeta; si el nombre no dice nada (lo pusieron a mano al
+    descargar), la que dice el PDF en «Camera(s)»."""
+    k = identificar_bin(nombre)
+    if k and k["tipo"] in ("camara", "dron") and k["letra"]:
+        return k["letra"]
+    return letra_de_cam(cam) if not k else ""
+
+
+MBPS_SEGURO_SONIDO = 5.0      # menos que esto es sonido casi seguro (2 pistas 48 kHz/24 bit = 2,3 Mbps; el celular más liviano ≈ 8)
+MBPS_SEGURO_IMAGEN = 60.0     # más que esto es imagen seguro (32 pistas de sonido = 37 Mbps; toda cámara de cine pasa de 100)
+
+
+def mbps_de(gb, seg):
+    """El peso por segundo de una tarjeta, en megabits por segundo (None si no hay duración)."""
+    return (float(gb) * 8000.0 / float(seg)) if seg and gb else None
+
+
+def adivinar_tipo(nombre_bin, cam=""):
+    """Qué parece ser un BIN que no conocemos: (tipo, letra, otro). `cam`: lo que el PDF pone en «Camera(s)» para ese BIN."""
     letra = parece_camara(nombre_bin)
     if letra:
         return "camara", letra, ""
+    k = identificar_bin(nombre_bin)
+    if k and k["tipo"] == "camara" and k["letra"] and k["marca"] != "cámara con letra":
+        return "camara", k["letra"], ""                                # C001_1112YE (RED), A001R1JK (ARRI), A001C001_… (Sony/Canon)
+    if not k and letra_de_cam(cam):                    # nombre puesto a mano («TARJETA_2_DIA5»): el PDF dice de qué cámara es
+        return "camara", letra_de_cam(cam), ""
     emb = letra_incrustada(nombre_bin)
     if emb:                                                           # DJI_001_H10: la letra de la cámara va dentro del nombre
         return "otro", "", emb[1]
@@ -438,18 +584,52 @@ def adivinar_tipo(nombre_bin):
         return "sonido", "", ""
     if re.match(r"^PORTATIL", str(nombre_bin), re.IGNORECASE):     # grabadora de respaldo (LRDS4: PORTATIL, PORTATIL_03, modelo 633)
         return "sonido", "", "PORTATIL"
-    if re.match(r"^[A-Za-z]\d", nombre_bin) or re.match(r"^K[A-Za-z]\d", nombre_bin):          # A168CUSW, A011CJXD_CINE, D001_…, I001, J001, N004, KA001: una letra y un número = cámara con esa letra
-        return "otro", "", patron_corto(nombre_bin)        # «A#»: reconoce todas las tarjetas de esa cámara, sin importar lo que siga
+    if re.match(r"^K[A-Za-z]\d", nombre_bin):                      # GoPro KA001 → KA#
+        return "otro", "", patron_corto(nombre_bin)
+    if re.match(r"^[A-Za-z]\d", nombre_bin):          # Y001_1028BD, D001_…, N004, M001L: una letra y un número = la cámara de esa letra
+        return "camara", str(nombre_bin)[0].upper(), ""
+    if k and k["tipo"] == "sonido":                    # AMBIENTES_U2, ZOOM_01, SR001, 261112_001, 10-OCT-28: sonido con su propio comienzo
+        return "otro", "", (patron_de_palabra(nombre_bin) if re.match(r"[A-Za-z]{2}", str(nombre_bin).strip()) else patron_corto(nombre_bin))
+    if k and k["tipo"] in ("dron", "accion", "celular", "foto"):
+        return "otro", "", patron_de_palabra(nombre_bin)
     return "otro", "", sugerir_patron(nombre_bin)
+
+
+def patron_de_palabra(nombre):
+    """«GOPRO_003» → GOPRO · «DJI_0045» → DJI_ · «IMG_0012» → IMG_ · «AMBIENTES U2» → AMBIENTES: la palabra con la que empieza
+    (así reconoce todas las tarjetas de ese equipo, sin importar el número)."""
+    m = re.match(r"^([A-Za-z]{2,}_?)", str(nombre).strip())
+    return m.group(1).upper() if m else sugerir_patron(nombre)
+
+
+NOMBRE_DE_TIPO = {"dron": "Dron", "accion": "Cámara de acción", "celular": "Celular", "foto": "Cámara de fotos", "sonido": "Sonido"}
+
+
+def nombre_sugerido(nombre_bin, cam=""):
+    """Cómo llamar el rollo nuevo: «Cámara C», «Dron», «GoPro», «Sonido»… ('' si no hay una buena idea)."""
+    k = identificar_bin(nombre_bin)
+    letra = letra_de_bin(nombre_bin, cam)
+    if k and k["tipo"] == "sonido":
+        return "Sonido"
+    if letra and not (k and k["tipo"] in ("accion", "celular", "foto")):
+        return f"Cámara {letra}"
+    if k:
+        return {"GoPro": "GoPro", "Insta360": "Insta360", "iPhone": "iPhone"}.get(k["marca"]) or NOMBRE_DE_TIPO.get(k["tipo"], "")
+    return ""
 
 
 def que_es_rollo(tipo, letra, nombre):
     """Cómo se le describe a la persona un BIN nuevo. «Y001_1028BD» (una letra y un número) es una cámara con esa letra, aunque su
     patrón sea «Y#» y no «Y_» (antes decía «algo que no reconozco» y había que adivinar qué era)."""
+    k = identificar_bin(nombre)
+    marca = f" ({k['marca']}" + (f", rollo {k['rollo']}" if k.get("rollo") else "") + ")" if k and k["marca"] != "cámara con letra" else ""
     if tipo == "camara":
-        return f"una cámara nueva con la letra {letra}"
+        return f"una cámara nueva con la letra {letra}" + (marca if k and k["tipo"] == "camara" else "")
     if tipo == "otro" and re.match(r"^[A-Za-z]\d", str(nombre or "")):
         return f"una cámara nueva con la letra {str(nombre)[0].upper()}"
+    if tipo == "otro" and k:
+        return {"dron": "un dron", "accion": "una cámara de acción", "celular": "un celular", "foto": "una cámara de fotos",
+                "sonido": "sonido"}.get(k["tipo"], "un equipo nuevo") + marca
     return {"sonido": "sonido", "drones": "drones", "celulares": "celulares"}.get(tipo, "algo que no reconozco")
 
 
@@ -702,14 +882,22 @@ def leer_reporte(ruta, texto=None):
         b["audio"] = None if cintas is None else b["nombre"] in cintas
         if b["audio"] is False and not b["cam"] and tot and b["clips"] == tot[0] and abs(b["gb"] - tot[1]) <= 0.05:
             b["audio"] = True              # el BIN de audio se llama de otra forma (10-OCT-09) pero trae justo los clips y GB de «Audio Tapes»
+    _audio_por_cintas(bins, cintas_con_datos(texto), tot)
     avisos_lectura = _separar_audio_de_camara(bins, sumas_por_camara(texto))
     if not bins:
         raise ErrorRegistro("No encontré filas en la tabla «Bins». ¿Cambió el formato del reporte?")
-    return {"dia": dia, "fecha": fecha, "bins": bins, "sin_leer": sin_leer, "unidad": num_unidad, "dia_rodaje": dia_rodaje,
-            "fecha_dudosa": fecha_dudosa, "totales": totales_del_reporte(texto),
-            "carpeta_con_unidad": bool(m.group(3)), "copias": copias_de_seguridad(texto), "avisos_lectura": avisos_lectura,
-            "dia_de_carpeta": dia_de_carpeta,
-            "solo_fecha": solo_fecha}
+    reporte = {"dia": dia, "fecha": fecha, "bins": bins, "sin_leer": sin_leer, "unidad": num_unidad, "dia_rodaje": dia_rodaje,
+               "fecha_dudosa": fecha_dudosa, "totales": totales_del_reporte(texto),
+               "carpeta_con_unidad": bool(m.group(3)), "copias": copias_de_seguridad(texto), "avisos_lectura": avisos_lectura,
+               "dia_de_carpeta": dia_de_carpeta,
+               "solo_fecha": solo_fecha, "confirmaciones": []}
+    try:
+        confirmar_reporte(reporte, texto)              # cruza «Bins», «Video Reels», «Camera Sums», «Video Formats» y «Audio Tapes»
+    except Exception as e:                             # confirmar nunca impide leer
+        reporte["confirmaciones"] = [("info", f"No pude cruzar las partes del PDF para confirmar las cámaras ({type(e).__name__}).")]
+        for b_ in bins:
+            b_.setdefault("verif", {"tipo": "", "letra": "", "rollo": None, "marca": "", "pruebas": [], "dudas": []})
+    return reporte
 
 
 def dia_por_fecha(reporte, valores06=None, datos07=None):
@@ -751,6 +939,259 @@ def dia_por_fecha(reporte, valores06=None, datos07=None):
     raise ErrorRegistro(f"Este reporte no dice qué día de rodaje es, solo la fecha {objetivo:%d/%m/%Y}, y en tus hojas todavía no hay "
                         "un día con esa fecha. Registra primero el reporte del día (el que trae las cámaras): este sonido normalmente "
                         "ya viene incluido en él.")
+
+
+def cintas_con_datos(texto):
+    """Las filas de «Audio Tapes» con sus números: [(nombre, clips, segundos, GB)]. La cinta no siempre se llama como el BIN
+    (BIN «26Y11M12_AMB», cinta «261112»), pero trae los mismos clips, duración y peso."""
+    m = re.search(r"Audio\s+Tapes\s*\n\s*Tape\s+Name[^\n]*\n(.*?)(?:Audio\s+Formats|Pomfort|$)", texto, re.S)
+    salida = []
+    for f in (FILA_CINTA.match(l) for l in (m.group(1).splitlines() if m else [])):
+        if f:
+            nombre, clips, dur, unidad, _files, tam, u = f.groups()
+            salida.append((nombre, int(clips), a_segundos(dur, unidad), float(tam.replace(",", "")) * GB_POR_UNIDAD[u]))
+    return salida
+
+
+def _audio_por_cintas(bins, cintas, tot):
+    """Marca como audio los BIN que el reporte no listó por su nombre en «Audio Tapes» pero que SON esas cintas:
+    1) mismos clips, duración y peso que una cinta;  2) los BIN sin cámara que, juntos, pesan lo que suma «Audio Tapes»."""
+    libres = list(cintas)
+    for b in bins:
+        if b.get("audio") is True:
+            libres = [c for c in libres if c[0] != b["nombre"]]
+    for b in bins:
+        if b.get("audio") is True or b.get("cam"):
+            continue
+        igual = next((c for c in libres if c[1] == b["clips"] and abs(c[2] - b["seg"]) <= 2 and abs(c[3] - b["gb"]) <= max(0.02, c[3] * 0.01)), None)
+        if igual:
+            b["audio"] = True
+            libres.remove(igual)
+    if tot:                                            # solo si de verdad FALTA audio por ubicar (si no, una tarjeta liviana sin cámara
+        sin_cam = [b for b in bins if not b.get("cam") and b.get("audio") is not True]      # —un clip de celular— caía en el margen)
+        ya = sum(b["gb"] for b in bins if b.get("audio") is True)
+        ya_clips = sum(b["clips"] for b in bins if b.get("audio") is True)
+        margen = max(0.05, tot[1] * 0.01)
+        peso = sum(b["gb"] for b in sin_cam)
+        if sin_cam and any(b.get("cam") for b in bins) and tot[1] - ya > margen and peso > margen and abs(ya + peso - tot[1]) <= margen \
+                and ya_clips + sum(b["clips"] for b in sin_cam) == tot[0]:
+            for b in sin_cam:
+                b["audio"] = True
+
+
+# -----------------------------------------------------------------------------------------------------------------------------
+# CONFIRMAR CADA TARJETA CON VARIAS PARTES DEL PDF. El reporte dice lo mismo en varios lugares: la tabla «Bins» (nombre con que se
+# descargó + cámara), «Video Reels» (el rollo como lo nombró la cámara), «Camera Sums» (lo que suma cada cámara), «Video Formats»
+# (el códec: ARRIRAW = ARRI, R3D = RED, X-OCN = Sony…) y «Audio Tapes». Aquí se cruzan: cada dato queda con sus pruebas, y lo que
+# no cuadra sale como duda (nunca detiene la lectura). Lo que se ESCRIBE en la hoja es siempre el nombre con que se descargó.
+# -----------------------------------------------------------------------------------------------------------------------------
+_FILA_ROLLO = re.compile(r"^\s*(.*?)\s*(\d+)\s+" + _DUR + r"\s*(h|min|sec)\s+(\d+)\s+([\d.,]+)\s*(KB|MB|GB|TB)\s*$")
+_CODECS = (("ARRI", r"arri"), ("RED", r"\br3d\b|redcode|\bred\b"), ("Sony", r"sony|x-?ocn|xocn|xavc"), ("Canon", r"canon|xf-?avc|\bcrm\b"),
+           ("Blackmagic", r"blackmagic|\bbraw\b"), ("Panasonic", r"panasonic|v-?raw|avc-?intra"), ("DJI / CinemaDNG", r"cinemadng|\bdng\b"),
+           ("ProRes", r"prores"), ("H.264 / H.265", r"h\.?26[45]|hevc|avc"))
+
+
+def _gb_y_margen(numero, unidad):
+    """(GB, margen por el redondeo con que el PDF lo escribe): «1.77 TB» = 1770 GB ± 5."""
+    dec = len(numero.split(".")[1]) if "." in numero else 0
+    return float(numero.replace(",", "")) * GB_POR_UNIDAD[unidad], 0.5 * 10 ** (-dec) * GB_POR_UNIDAD[unidad] + 0.011
+
+
+def rollos_de_video(texto, camaras=()):
+    """Las filas de «Video Reels»: [{nombre, cams, clips, seg, gb}]. El nombre puede venir vacío y las cámaras ser varias («A, B»)."""
+    m = re.search(r"Video\s+Reels\s*\n\s*Reel\s+Name[^\n]*\n(.*?)(?:Camera\s+Sums|Video\s+Formats|Audio\s+Tapes|$)", texto, re.S)
+    conocidas = {str(c).upper() for c in camaras if c}
+    salida = []
+    for linea in (m.group(1).splitlines() if m else []):
+        if ENCABEZADO_BINS.search(linea) or not linea.strip():
+            continue
+        f = _FILA_ROLLO.match(linea)
+        if not f:
+            continue
+        cabeza, clips, dur, unidad, _files, tam, u = f.groups()
+        partes = [x for x in re.split(r"[\s,]+", cabeza.strip()) if x]
+        cams = []
+        while partes and partes[-1].upper() in conocidas and (len(partes) > 1 or not cams):
+            cams.insert(0, partes.pop())
+            if not partes:
+                break
+        if not conocidas and len(partes) > 1 and re.fullmatch(r"[A-Za-z][A-Za-z0-9]{0,2}_?", partes[-1]):
+            cams.insert(0, partes.pop())
+        salida.append({"nombre": " ".join(partes), "cams": cams, "clips": int(clips), "seg": a_segundos(dur, unidad),
+                       "gb": float(tam.replace(",", "")) * GB_POR_UNIDAD[u]})
+    return salida
+
+
+def formatos_de_video(texto):
+    """Las filas de «Video Formats» con la marca que delata su códec: [{marca, codec, clips, gb, margen}]."""
+    m = re.search(r"Video\s+Formats(.*?)(?:Audio\s+Tapes|Audio\s+Formats|$)", texto, re.S)
+    lineas = [l.strip() for l in (m.group(1).splitlines() if m else []) if l.strip()]
+    datos = re.compile(r"^(.*?)\b([A-Za-z0-9]{2,4})\s+\S+\s+[\d.]+\s+(\d+)\s+" + _DUR + r"\s*(?:h|min|sec)\s+\d+\s+([\d.,]+)\s*(KB|MB|GB|TB)\s*$")
+    es_ruido = lambda l: bool(re.match(r"(?i)^(codec|project|fps|page\b|pomfort|shooting day report)", l))
+    marca_de = lambda t: next((n for n, rx in _CODECS if re.search(rx, t, re.I)), "")
+    filas = [(k, datos.match(l)) for k, l in enumerate(lineas)]
+    con = [k for k, f in filas if f]
+    salida = []
+    for n, i in enumerate(con):
+        f = filas[i][1]
+        antes = [l for l in lineas[(con[n - 1] + 1 if n else 0):i] if not es_ruido(l)]
+        despues = [l for l in lineas[i + 1:(con[n + 1] if n + 1 < len(con) else len(lineas))] if not es_ruido(l)]
+        # el nombre del códec viene partido en renglones: primero lo que está en SU renglón, luego lo de arriba (el más cercano
+        # primero) y al final lo de abajo; así no se le pega la marca del códec vecino
+        propio = (f.group(1).strip() + " " + f.group(2)).strip()
+        marca = marca_de(propio) or next((m for m in (marca_de(l) for l in reversed(antes)) if m), "") \
+            or next((m for m in (marca_de(l) for l in despues[:1]) if m), "")
+        codec = " ".join(antes[-1:] + [propio] + despues[:1]).strip()
+        gb, margen = _gb_y_margen(f.group(5), f.group(6))
+        salida.append({"marca": marca, "codec": " ".join(codec.split()), "clips": int(f.group(3)), "gb": gb, "margen": margen})
+    return salida
+
+
+def _marca_corta(marca):
+    """De «ARRI ALEXA 35 / 265» → {ARRI}; «Sony / Canon / Panasonic (cine)» → {Sony, Canon, Panasonic}; «RED / DJI…» → {RED, DJI / CinemaDNG}."""
+    t = str(marca or "")
+    return {n for n, clave in (("ARRI", "ARRI"), ("RED", "RED"), ("Sony", "Sony"), ("Canon", "Canon"), ("Panasonic", "Panasonic"),
+                               ("Blackmagic", "Blackmagic"), ("DJI / CinemaDNG", "DJI")) if clave in t}
+
+
+def confirmar_reporte(reporte, texto):
+    """Cruza las partes del PDF y deja en cada BIN `verif` = {tipo, letra, rollo, marca, pruebas: [...], dudas: [...]} y, si el nombre
+    no dice de qué cámara es (lo pusieron a mano al descargar), `letra` = la que confirman «Camera(s)» y «Video Reels».
+    Devuelve las líneas para «Comprobaciones»: [(estado, mensaje)]. Nunca lanza errores: si una parte del PDF no se entiende, se salta."""
+    bins = reporte["bins"]
+    # los signos que el PDF trae como símbolos privados (dos puntos, paréntesis, cifras) y los que no se saben leer (la coma de «A, B»)
+    texto = "".join(" " if 0xE000 <= ord(ch) <= 0xF8FF else ch for ch in texto.translate(str.maketrans(dict(rd.PUA))))
+    sumas = sumas_por_camara(texto)
+    rollos = rollos_de_video(texto, list(sumas) + [b.get("cam") for b in bins])
+    formatos = formatos_de_video(texto)
+    cintas = cintas_con_datos(texto)
+    libres = list(rollos)
+    for b in bins:
+        k = identificar_bin(b["nombre"]) or {}
+        v = b["verif"] = {"tipo": "", "letra": "", "rollo": k.get("rollo"), "marca": k.get("marca", ""), "pruebas": [], "dudas": []}
+        mbps = mbps_de(b["gb"], b["seg"])
+        if b.get("audio"):
+            v["tipo"] = "sonido"
+            if any(c[0] == b["nombre"] for c in cintas):
+                v["pruebas"].append("«Audio Tapes»")
+            elif any(c[1] == b["clips"] and abs(c[2] - b["seg"]) <= 2 for c in cintas):
+                v["pruebas"].append("«Audio Tapes»")
+            elif cintas:
+                v["pruebas"].append("«Audio Tapes»")
+            if k.get("tipo") == "sonido":
+                v["pruebas"].append("nombre de sonido")
+            if not b.get("cam"):
+                v["pruebas"].append("sin cámara en «Bins»")
+            if mbps is not None and mbps > MBPS_SEGURO_IMAGEN:
+                v["dudas"].append(f"«{b['nombre']}» figura como audio pero pesa como imagen ({mbps:.0f} Mbps): revísalo.")
+            elif mbps is not None:
+                v["pruebas"].append("peso de sonido")
+            continue
+        # ---- imagen ----
+        letra_nombre = k.get("letra", "") if k.get("tipo") in ("camara", "dron") else ""
+        letra_pdf = letra_de_cam(b.get("cam"))
+        if k.get("tipo") and k["tipo"] != "sonido":
+            v["tipo"] = k["tipo"]
+            v["pruebas"].append("nombre de la tarjeta")
+        mio = None
+        for r in libres:                                   # su rollo en «Video Reels»: mismos clips, duración y peso
+            if r["clips"] == b["clips"] - (b.get("audio_mezclado") or {}).get("clips", 0) and abs(r["seg"] - b["seg"]) <= 2 + (b.get("audio_mezclado") or {}).get("seg", 0) \
+                    and abs(r["gb"] - b["gb"]) <= max(0.02, b["gb"] * 0.002) + (b.get("audio_mezclado") or {}).get("gb", 0) \
+                    and (not r["cams"] or not b.get("cam") or b["cam"].upper() in {c.upper() for c in r["cams"]}):
+                mio = r
+                break
+        letra_rollo = ""
+        if mio:
+            libres.remove(mio)
+            kr = identificar_bin(mio["nombre"]) or {}
+            letra_rollo = kr.get("letra", "") if kr.get("tipo") == "camara" and kr.get("marca") != "cámara con letra" else ""
+            if len(mio["cams"]) == 1 and not letra_rollo:
+                letra_rollo = letra_de_cam(mio["cams"][0])
+            v["rollo_pdf"] = mio["nombre"]
+            v["pruebas"].append("«Video Reels»")
+            if v["rollo"] is None and kr.get("rollo") is not None:
+                v["rollo"] = kr["rollo"]
+            elif v["rollo"] is None and re.fullmatch(r"\d{1,4}", mio["nombre"] or ""):
+                v["rollo"] = int(mio["nombre"])
+            if not v["marca"] or v["marca"] == "cámara con letra":
+                v["marca"] = kr.get("marca", "") if kr.get("marca") != "cámara con letra" else v["marca"]
+        if b.get("cam"):
+            v["tipo"] = v["tipo"] or "camara"
+        votos = [x for x in (letra_nombre, letra_pdf, letra_rollo) if x]
+        v["letra"] = letra_nombre or (max(set(votos), key=votos.count) if votos else "")
+        if letra_pdf and letra_pdf == v["letra"]:
+            v["pruebas"].append("cámara de «Bins»")
+        if v["letra"] and not letra_nombre:
+            b["letra"] = v["letra"]                        # nombre puesto a mano: la cámara la dicen «Bins» y «Video Reels»
+        distintas = sorted({x for x in votos if x != v["letra"]})
+        if distintas and letra_nombre:
+            v["dudas"].append(f"«{b['nombre']}»: por su nombre es de la cámara {letra_nombre}, pero el PDF la anota en la cámara "
+                              f"{' / '.join(distintas)}. La dejé en la {letra_nombre} (manda el nombre con que se descargó); revísalo.")
+        if mbps is not None and mbps < MBPS_SEGURO_SONIDO and not b.get("audio_mezclado"):
+            v["dudas"].append(f"«{b['nombre']}» figura como imagen pero pesa como sonido ({mbps:.1f} Mbps): revísalo.")
+        elif mbps is not None and mbps > MBPS_SEGURO_IMAGEN:
+            v["pruebas"].append("peso de imagen")
+    # ---- cada cámara contra «Camera Sums» y contra el códec de «Video Formats» ----
+    lineas = []
+    de_cam = {}
+    for b in bins:
+        if not b.get("audio") and b.get("cam"):
+            de_cam.setdefault(b["cam"], []).append(b)
+    suma_ok = {}
+    for cam, s_ in sumas.items():
+        suyos = de_cam.get(cam) or []
+        if not suyos:
+            continue
+        clips = sum(b["clips"] - (b.get("audio_mezclado") or {}).get("clips", 0) for b in suyos)
+        gb = sum(b["gb"] - (b.get("audio_mezclado") or {}).get("gb", 0.0) for b in suyos)
+        suma_ok[cam] = clips == s_["clips"] and abs(gb - s_["gb"]) <= max(0.02 * len(suyos) + 0.02, s_["gb"] * 0.006)
+        if suma_ok[cam]:
+            for b in suyos:
+                b["verif"]["pruebas"].append("«Camera Sums»")
+    por_marca = {}
+    for f in formatos:
+        if f["marca"]:
+            por_marca.setdefault(f["marca"], [0.0, 0.0])
+            por_marca[f["marca"]][0] += f["gb"]
+            por_marca[f["marca"]][1] += f["margen"]
+    for marca, (gb_m, margen) in por_marca.items():
+        if marca in ("ProRes", "H.264 / H.265"):
+            continue
+        cams = [c for c, bs in de_cam.items() if any(marca in _marca_corta(b["verif"]["marca"]) for b in bs)]
+        total = sum(sumas[c]["gb"] if c in sumas else sum(b["gb"] for b in de_cam[c]) for c in cams)
+        if cams and abs(total - gb_m) <= margen + 0.006 * gb_m + 0.05:
+            for c in cams:
+                for b in de_cam[c]:
+                    b["verif"]["pruebas"].append("códec de «Video Formats»")
+                    b["verif"]["marca_ok"] = marca
+        elif not cams:                                    # el nombre no decía la marca: una sola cámara pesa justo lo de ese códec
+            solas = [c for c in de_cam if abs((sumas[c]["gb"] if c in sumas else sum(b["gb"] for b in de_cam[c])) - gb_m) <= margen + 0.006 * gb_m + 0.05]
+            if len(solas) == 1:
+                for b in de_cam[solas[0]]:
+                    b["verif"]["pruebas"].append("códec de «Video Formats»")
+                    b["verif"]["marca_ok"] = marca
+    # ---- líneas para la pantalla: una por cámara, una para el sonido, y las dudas ----
+    grupos = {}
+    for b in bins:
+        v = b["verif"]
+        clave = "Sonido" if v["tipo"] == "sonido" else (f"Cámara {v['letra']}" if v["letra"] else b["nombre"])
+        grupos.setdefault(clave, []).append(b)
+    for clave, bs in grupos.items():
+        en_todas = [x for x in dict.fromkeys(x for b in bs for x in b["verif"]["pruebas"]) if all(x in b["verif"]["pruebas"] for b in bs)]
+        n = len(en_todas)
+        marca = next((b["verif"].get("marca_ok") or "" for b in bs if b["verif"].get("marca_ok")), "")
+        quien = clave + (f" ({marca})" if marca and clave.startswith("Cámara") else "")
+        if n >= 2:
+            lineas.append(("ok", f"{quien}: confirmada con {n} datos del PDF ({', '.join(en_todas)})."))
+        elif n == 1:
+            lineas.append(("info", f"{quien}: un solo dato del PDF la confirma ({en_todas[0]})."))
+        else:
+            lineas.append(("aviso", f"{quien}: el PDF no trae con qué confirmarla (ni cámara, ni rollo, ni cinta). Revisa que quede en el rollo correcto."))
+    for b in bins:
+        for d in b["verif"]["dudas"]:
+            lineas.append(("info" if "manda el nombre" in d else "aviso", d))
+    reporte["confirmaciones"] = lineas
+    return lineas
 
 
 def _separar_audio_de_camara(bins, sumas):
@@ -1445,6 +1886,18 @@ def grupo_por_modelo(modelo, cfg):
     return hallados[0] if len(hallados) == 1 else None
 
 
+def grupo_provisional(nombre, modelo=""):
+    """Una tarjeta de una cámara con letra que NO está en los rollos de Ajustes (la agregó otra persona del equipo, o se escribió a
+    mano en la hoja): se cuenta igual, como «Cámara B», en vez de mezclarla con otra cámara o dejarla por fuera. None si el nombre
+    no dice de qué cámara es."""
+    k = identificar_bin(nombre)
+    if not k or k["tipo"] != "camara" or not k["letra"]:
+        return None
+    letra = k["letra"]
+    return {"id": f"auto-cam-{letra}", "nombre": f"Cámara {letra}", "patrones": patrones_de_camara(letra), "rental": "",
+            "modelo": str(modelo or "").strip(), "ciclo_mag": None, "color": "", "avisar_si_falta": False, "provisional": True}
+
+
 def grupo_de_sonido(cfg):
     """El rollo de sonido de la configuración; si no hay ninguno, uno provisional («Sonido») para no perder el audio."""
     g = next((x for x in cfg["grupos"] if grupo_es_sonido(x)), None)
@@ -1711,12 +2164,18 @@ def combinar_hallazgos(listas):
                 r["nombre"] = f"Sonido · {modelo_corto(r['modelo'])}"
     # el sonido va siempre al final (orden estable para el resto)
     salida.sort(key=lambda r: r["tipo"] == "sonido" or "SOUND" in r["modelo"].upper())
-    # «LOMA» y «LOMA RENTAL» son el mismo rental: se deja el nombre más completo
-    nombres = {r["rental"] for r in salida if r["rental"]}
+    # «LOMA» y «LOMA RENTAL» son el mismo rental: se deja la forma que la hoja MÁS usa (antes: la más larga, y la app terminaba
+    # escribiendo «LOMA Film Rental» en 12 filas que la hoja llevaba como «LOMA»)
+    uso = {}
     for r in salida:
-        mas_largos = [n for n in nombres if n != r["rental"] and n.upper().startswith(r["rental"].upper() + " ")]
-        if r["rental"] and mas_largos:
-            r["rental"] = max(mas_largos, key=len)
+        if r["rental"]:
+            uso[r["rental"]] = uso.get(r["rental"], 0) + (r.get("filas") or 1)
+    for r in salida:
+        if not r["rental"]:
+            continue
+        mismas = [n for n in uso if n.upper() == r["rental"].upper() or n.upper().startswith(r["rental"].upper() + " ")
+                  or r["rental"].upper().startswith(n.upper() + " ")]
+        r["rental"] = max(mismas, key=lambda n: (uso[n], len(n)))
     return salida
 
 
@@ -1777,7 +2236,7 @@ def clasificar(reporte, cfg, recientes=None):
     por_grupo, sin = {}, []
     for b in reporte["bins"]:
         g = (grupo_de_audio(b["nombre"], cfg, recientes=recientes) if b.get("audio")
-             else grupo_de(b["nombre"], cfg, audio=b.get("audio"), recientes=recientes))
+             else grupo_de(b["nombre"], cfg, audio=b.get("audio"), recientes=recientes, cam=b.get("letra") or b.get("cam") or ""))
         if g is None and b.get("audio"):
             g = grupo_de(b["nombre"], cfg, recientes=recientes)
         if g is None and ES_NOMBRE_DE_SONIDO.match(b["nombre"]):          # «Audio», «Sonido», «SND_01»: van al rollo de Sonido
@@ -1786,6 +2245,77 @@ def clasificar(reporte, cfg, recientes=None):
                 b["audio"] = True
         (por_grupo.setdefault(g["id"], []) if g else sin).append(b)
     return por_grupo, sin
+
+
+def datos_de_camara_en_hoja(valores, letra):
+    """Si la cámara de esa letra YA tiene filas en el estatus (la agregó otra persona del equipo, o desde otro aparato): su rental y
+    su equipo más usados, para no volver a escribirlos. ('', '') si no hay."""
+    from collections import Counter
+    if not valores or not letra:
+        return "", ""
+    fmt = getattr(valores, "fmt", None) or FORMATO_DSMD
+    rental, modelo = Counter(), Counter()
+    for fila in valores:
+        try:
+            nombre = _celda(list(fila), fmt, "cam")
+            if not isinstance(nombre, str) or letra_de_bin(nombre.strip()) != letra:
+                continue
+            k = identificar_bin(nombre.strip())
+            if k and k["tipo"] == "sonido":
+                continue
+            for cuenta, clave in ((rental, "rental"), (modelo, "modelo")):
+                v = _celda(list(fila), fmt, clave) if fmt["col"].get(clave) is not None else ""
+                if isinstance(v, str) and v.strip():
+                    cuenta[v.strip()] += 1
+        except Exception:
+            continue
+    return (rental.most_common(1)[0][0] if rental else ""), (modelo.most_common(1)[0][0] if modelo else "")
+
+
+def rollo_nuevo_sugerido(cfg, reporte, valores=None):
+    """El primer BIN del PDF que ningún rollo reconoce, con todo lo que se puede adelantar para el formulario «rollo nuevo» (lo mismo
+    en el Mac y en el celular), o None si todo se reconoce. Devuelve {nombre_bin, cam, es_audio, base, que, ejemplos, pos_camara}."""
+    _, sin = clasificar(reporte, cfg)
+    if not sin:
+        return None
+    b0 = sorted(sin, key=lambda b: b["nombre"])[0]
+    nombre, cam, es_audio = b0["nombre"], b0.get("letra") or b0.get("cam") or "", bool(b0.get("audio"))
+    tipo, letra, otro = adivinar_tipo(nombre, cam)
+    if es_audio and tipo != "sonido":
+        k = identificar_bin(nombre)
+        otro = patron_de_palabra(nombre) if (k and k["tipo"] == "sonido" and re.match(r"[A-Za-z]{2}", nombre)) else patron_corto(nombre)
+        tipo, letra = "otro", ""
+    igual = adivinar_tipo(nombre, cam)
+    parecidos = sorted(b["nombre"] for b in sin if adivinar_tipo(b["nombre"], b.get("letra") or b.get("cam") or "") == igual and bool(b.get("audio")) == es_audio)
+    que = que_es_rollo(tipo, letra, nombre)
+    verif = b0.get("verif") or {}
+    if tipo == "camara" and verif.get("marca_ok"):     # la marca que confirma el códec del PDF manda sobre la que sugiere el nombre
+        que = f"una cámara nueva con la letra {letra} ({verif['marca_ok']} según el códec del PDF" + \
+              (f", rollo {verif['rollo']}" if verif.get("rollo") else "") + ")"
+    if tipo == "camara" and len([x for x in verif.get("pruebas") or [] if x != "peso de imagen"]) >= 2:
+        que += ". Lo confirman: " + ", ".join(x for x in verif["pruebas"] if x != "peso de imagen")
+    base = {"tipo": tipo, "letra": letra, "otro": otro}
+    if es_audio and tipo == "otro":
+        que = "AUDIO (el reporte lo lista como grabación de audio). Llámalo «Sonido» para que cuente como audio"
+        base["nombre"], base["nombre_fijo"] = "Sonido", True
+    elif tipo == "otro" and nombre_sugerido(nombre, cam):
+        base["nombre"] = nombre_sugerido(nombre, cam)
+    if tipo == "camara":
+        rental, modelo = datos_de_camara_en_hoja(valores, letra)
+        if rental:
+            base["rental"] = rental
+        if modelo:
+            base["modelo"] = modelo
+    idx_cam = [i for i, g in enumerate(cfg["grupos"]) if not grupo_es_sonido(g)]
+    return {"nombre_bin": nombre, "cam": cam, "es_audio": es_audio, "base": base, "que": que,
+            "ejemplos": ", ".join(parecidos[:3]) + ("…" if len(parecidos) > 3 else ""),
+            "pos_camara": (idx_cam[-1] + 1) if idx_cam else 0}
+
+
+def rollo_nuevo_sirve(prueba, g, sugerido):
+    """¿El rollo recién llenado reconoce de verdad el BIN que lo motivó?"""
+    return grupo_de(sugerido["nombre_bin"], prueba, audio=True if sugerido["es_audio"] else None, cam=sugerido.get("cam") or "") is g \
+        or (sugerido["es_audio"] and grupo_de_audio(sugerido["nombre_bin"], prueba) is g)
 
 
 def siguiente_mag(ultimo, ciclo):
@@ -1807,8 +2337,19 @@ def armar_filas(reporte, cfg, hist):
     mags = dict(hist["ultimo_mag"])
     filas, avisos = [], []
     orden = hist.get("orden") or {}
-    n_g = max(len(cfg["grupos"]), 1)
-    grupos = sorted(enumerate(cfg["grupos"]), key=lambda p: (orden.get(p[1]["id"], p[0] / n_g), p[0]))   # como ordena tu hoja cada día
+    # como ordena tu hoja cada día. Un rollo que la hoja todavía no tiene (cámara nueva) va pegado al rollo que tiene ANTES en tus
+    # Ajustes (antes se calculaba un lugar aparte y la cámara C nueva caía después del sonido).
+    lugar, previo = {}, None
+    for i, g in enumerate(cfg["grupos"]):
+        if g["id"] in orden:
+            previo = orden[g["id"]]
+            lugar[g["id"]] = (previo, 0)
+        elif previo is not None:
+            lugar[g["id"]] = (previo, i + 1)
+    primero = min((v[0] for v in lugar.values()), default=0.0)
+    for i, g in enumerate(cfg["grupos"]):
+        lugar.setdefault(g["id"], (primero - 1, i))            # los de antes del primero conocido: al comienzo, en su orden
+    grupos = sorted(enumerate(cfg["grupos"]), key=lambda p: (lugar[p[1]["id"]], p[0]))
     for _, g in (grupos if orden else enumerate(cfg["grupos"])):
         for b in sorted(por_grupo.get(g["id"], []), key=lambda x: x["nombre"]):
             mag = siguiente_mag(mags.get(g["id"]), g["ciclo_mag"])
@@ -1817,6 +2358,12 @@ def armar_filas(reporte, cfg, hist):
             filas.append({"grupo": g["id"], "rental": g["rental"], "nombre": b["nombre"], "cam": b.get("cam") or "",
                           "modelo": g["modelo"], "mag": mag, "clips": b["clips"],
                           "seg": b["seg"], "gb": b["gb"], "audio": bool(b.get("audio")) or grupo_es_sonido(g)})
+            m_nombre = re.fullmatch(r"(?i)c[áa]mara\s+([A-Z])", str(g.get("nombre") or "").strip())
+            letra_ok = (b.get("verif") or {}).get("letra")
+            letra_g = letra_de_camara(g["patrones"]) or (m_nombre.group(1).upper() if m_nombre else None)
+            if letra_ok and letra_g and letra_ok != letra_g and not filas[-1]["audio"]:
+                avisos.append(f"«{b['nombre']}» quedó en «{g['nombre']}», pero el PDF dice que es de la cámara {letra_ok}. Revisa en "
+                              f"Ajustes → Rollos con qué empieza «{g['nombre']}».")
             if b.get("audio_mezclado") and not filas[-1]["audio"]:
                 filas[-1]["audio_mezclado"] = dict(b["audio_mezclado"])     # la tarjeta va completa; el estadístico separa el audio
             if b.get("audio") is None and _es_ambiguo(b["nombre"], cfg):

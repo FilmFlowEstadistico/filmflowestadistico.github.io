@@ -1,4 +1,4 @@
-const VERSION='ff-1794581256';
+const VERSION='ff-1794597613';
 const ARCHIVOS=[
   ['app.js','4a3f054d8906f382'],
   ['assets/fondo_bienvenida.jpg','8a31a09a70f6b4cb'],
@@ -18,13 +18,13 @@ const ARCHIVOS=[
   ['py/correo_core.py','8b6e0e73be0f9ce2'],
   ['py/cruce_core.py','e7656cf2762053a0'],
   ['py/estadistico_core.py','2f2634279083fd7f'],
-  ['py/movil_api.py','525424c6a2a6dc35'],
+  ['py/movil_api.py','23eeae4ce04e3a01'],
   ['py/movil_html.py','ae5bc4d7260b15aa'],
-  ['py/registro_core.py','1b0cd08b635362b5'],
+  ['py/registro_core.py','0713a7a31cc77423'],
   ['py/registro_diario.py','f765715d350bf62c'],
   ['py/registro_google.py','7e6889bcb5c36656'],
   ['py/reporte_core.py','bac5f1bfee113889'],
-  ['py/resumen_core.py','ee8332a788330809'],
+  ['py/resumen_core.py','8e32586b92ebe0c7'],
   ['py/sync_core.py','6df487bd3f1e732e'],
   ['py/tema_web.py','35f4329010fae1d8'],
   ['py/web_shim.py','7086ff1a3ad21e28'],
@@ -38,7 +38,7 @@ const ARCHIVOS=[
   ['vendor/pyodide/pyodide.js','b4cb23a53aba19c2'],
   ['vendor/pyodide/pyodide.mjs','04c052c815abb0bf'],
   ['vendor/pyodide/python_stdlib.zip','16611534726e5d8a'],
-  ['version.js','23eee452bf2fffbc'],
+  ['version.js','33f30f67b095e6a1'],
   ['worker.js','7d0ee7ac107afa5c'],
 ];
 // Al instalar una versión: los archivos con la MISMA huella que en la versión guardada se copian de ella (sin internet); los demás se

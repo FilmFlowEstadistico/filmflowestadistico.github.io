@@ -249,6 +249,8 @@ def _resumir_f06(filas, cfg, unidad, i0, col):
         # («AMBIENTES_U2») igual es audio: va al rollo de Sonido (o a uno provisional) en vez de quedar suelto.
         g = (rc.grupo_de_audio(nombre, cfg, modelo_f) or rc.grupo_de_sonido(cfg)) if audio_f \
             else rc.grupo_de(nombre, cfg, audio=False if modelo_f else None)
+        if g is None:                                         # cámara con letra que no está en Ajustes: cuenta como «Cámara B»
+            g = rc.grupo_provisional(nombre, modelo_f)        # (antes iba a la cámara con el mismo equipo: B_0001 caía en la X)
         if g is None:
             g = rc.grupo_por_modelo(modelo_f, cfg)             # si el nombre no dice nada, el equipo de la fila dice a qué rollo va
         if g is None:
@@ -798,6 +800,21 @@ def _serie_de_dias(dias):
             for d in dias if d["gb"] > 0 or d["clips"] or d.get("clips_audio")]
 
 
+def _orden_de_camaras(cfg):
+    """El orden de los rollos de Ajustes; una cámara que no está en Ajustes («Cámara B» provisional) va después de la última
+    cámara y antes del sonido, por su letra."""
+    orden_id = {(g.get("id") or g["nombre"]): j for j, g in enumerate(cfg["grupos"])}
+    ultimas = [j for j, g in enumerate(cfg["grupos"]) if not rc.grupo_es_sonido(g)]
+    tras = (ultimas[-1] if ultimas else -1) + 0.5
+
+    def clave(c):
+        gid = c.get("grupo_id", c.get("id"))
+        if gid in orden_id:
+            return (orden_id[gid], "")
+        return (tras, str(gid)) if str(gid).startswith("auto-cam-") else (999, str(gid))
+    return clave
+
+
 def _unidades_f06(f06, cfg, columnas07, f07, multi):
     """Cada unidad (pestaña) por separado: sus cámaras, sus días y sus totales. Vacío si el archivo trae una sola."""
     if len(f06.get("por_unidad", [])) < 2:
@@ -805,8 +822,7 @@ def _unidades_f06(f06, cfg, columnas07, f07, multi):
     salida = []
     for i, u in enumerate(f06["por_unidad"]):
         camaras = _entradas_f06(u["por_grupo"], cfg, columnas07, f07, multi)
-        orden_id = {(g.get("id") or g["nombre"]): j for j, g in enumerate(cfg["grupos"])}
-        camaras.sort(key=lambda c: orden_id.get(c["grupo_id"], 999))
+        camaras.sort(key=_orden_de_camaras(cfg))
         serie = _serie_de_dias(u["dias"])
         salida.append({"id": f"u{i + 1}", "nombre": nombre_de_unidad(u["pestana"], i), "pestana": u["pestana"],
                        "camaras": camaras, "serie": serie, "totales": _resumen_de_vista(cfg, camaras, serie)})
@@ -871,8 +887,7 @@ def construir(cfg, f06=None, f07=None, nombre_proyecto=""):
                                 "modelo": g.get("modelo", ""), "rental": g.get("rental", ""), "gb": 0.0, "clips": 0, "seg": 0.0,
                                 "tarjetas": 0, "ultimo_bin": "", "ultimo_rollo": None, "ultima_mag": None, "ultimo_dia": "",
                                 "ultima_fecha": None, "dias": 0, "sin_material": True})
-        orden_id = {(g.get("id") or g["nombre"]): i for i, g in enumerate(cfg["grupos"])}
-        camaras.sort(key=lambda c: orden_id.get(c["grupo_id"], 999))
+        camaras.sort(key=_orden_de_camaras(cfg))
         unidades = _unidades_f06(f06, cfg, columnas07, f07, multi)
         serie = _serie_de_dias(f06["dias"])                                  # un día solo cuenta si tiene material
         avisos += rollos_repetidos(f06["por_grupo"])

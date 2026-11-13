@@ -1,30 +1,31 @@
 {
- "version": "1.1.11",
+ "version": "1.1.12",
  "fecha": "2026-11-13",
  "novedades": [
-  "Reporte por semanas del proyecto: rueda de semanas y título «Semana N» con el nombre del proyecto",
-  "Portada del reporte renovada"
+  "Cámaras nuevas: reconoce tarjetas de cualquier marca (ARRI, RED, Sony, Canon, Blackmagic, DJI, GoPro, celulares) y el formulario de rollo nuevo ya no falla",
+  "Cada tarjeta se confirma con varias partes del PDF antes de escribir",
+  "Una cámara nueva queda antes del sonido y el Resumen ya no mezcla cámaras"
  ],
  "mac_arm64": {
   "archivo": "Estadistico_FilmFlow_Mac.zip",
-  "url": "https://github.com/FilmFlowEstadistico/filmflowestadistico.github.io/releases/download/v1.1.11/Estadistico_FilmFlow_Mac.zip",
-  "tamano": 40115263,
-  "sha256": "f3649e3a202f8bba153dc6fb3e54f90d2655a8f8b28bbc82d0b71dc0b290f5b4"
+  "url": "https://github.com/FilmFlowEstadistico/filmflowestadistico.github.io/releases/download/v1.1.12/Estadistico_FilmFlow_Mac.zip",
+  "tamano": 40136416,
+  "sha256": "09be4e825f933055d2e0e1540865ff03b644f25fb10d622adb95e29a2812d0df"
  },
  "dmg_arm64": {
   "archivo": "Estadistico_FilmFlow.dmg",
-  "url": "https://github.com/FilmFlowEstadistico/filmflowestadistico.github.io/releases/download/v1.1.11/Estadistico_FilmFlow.dmg",
-  "tamano": 51699591
+  "url": "https://github.com/FilmFlowEstadistico/filmflowestadistico.github.io/releases/download/v1.1.12/Estadistico_FilmFlow.dmg",
+  "tamano": 52354312
  },
  "mac_intel": {
   "archivo": "Estadistico_FilmFlow_Mac_Intel.zip",
-  "url": "https://github.com/FilmFlowEstadistico/filmflowestadistico.github.io/releases/download/v1.1.11/Estadistico_FilmFlow_Mac_Intel.zip",
-  "tamano": 41880978,
-  "sha256": "50df2079e175cb28eea1fb984a5aea84f45b05fc8ca08bb8ac47e9480b440e08"
+  "url": "https://github.com/FilmFlowEstadistico/filmflowestadistico.github.io/releases/download/v1.1.12/Estadistico_FilmFlow_Mac_Intel.zip",
+  "tamano": 41903452,
+  "sha256": "869def70bf01b53dbdcd5f417498838baf658cfdea7dd6d163b3e512a9a7589e"
  },
  "dmg_intel": {
   "archivo": "Estadistico_FilmFlow_Intel.dmg",
-  "url": "https://github.com/FilmFlowEstadistico/filmflowestadistico.github.io/releases/download/v1.1.11/Estadistico_FilmFlow_Intel.dmg",
-  "tamano": 56433051
+  "url": "https://github.com/FilmFlowEstadistico/filmflowestadistico.github.io/releases/download/v1.1.12/Estadistico_FilmFlow_Intel.dmg",
+  "tamano": 54730382
  }
 }
