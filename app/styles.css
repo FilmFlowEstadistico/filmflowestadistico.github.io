@@ -120,6 +120,7 @@ table.tabla{border-collapse:collapse;width:100%;font-size:14px}
 .tabla .acento-texto{color:var(--acento-texto)}.tabla .t2{color:var(--texto2)}
 .col{fill:color-mix(in srgb,var(--acento-ui) 45%,var(--superficie))}.col.ult,.col.sel{fill:var(--acento-ui)}.eje{fill:var(--texto2)}.rej{stroke:var(--separador);stroke-width:1}
 .prom{stroke:var(--aviso);stroke-width:1.5;stroke-dasharray:4 3}.prom-t{fill:var(--aviso);font-weight:700;paint-order:stroke;stroke:var(--superficie);stroke-width:4px;stroke-linejoin:round}
+.prom-fondo{fill:var(--superficie);stroke:color-mix(in srgb,var(--aviso) 45%,transparent);stroke-width:1}.prom-fondo~.prom-t{stroke:none}
 .grafico svg{touch-action:pan-y;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
 .tip rect{fill:var(--boton);stroke:var(--separador)}.tip text{fill:var(--texto)}
 .g-pie{margin:6px 0 0;font-size:13px;line-height:1.35}.g-raya{display:inline-block;width:18px;border-top:2px dashed var(--aviso);vertical-align:middle;margin-right:4px}

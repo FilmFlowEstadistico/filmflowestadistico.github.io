@@ -428,7 +428,42 @@ function actualizarProyectos(info) {
 }
 function abiertos() { return [...vista.querySelectorAll("details[data-k][open]")].map((d) => d.dataset.k); }
 function restaurarAbiertos(claves) { vista.querySelectorAll("details[data-k]").forEach((d) => { if (claves.includes(d.dataset.k)) d.open = true; }); }
+// Gráfica «Volumen por día» dibujada al ancho real (1 unidad = 1 píxel): letras de 11–12 px en el celular y en el computador,
+// barras de 64 px como mucho y rótulos de días que no se amontonan. Se vuelve a dibujar si cambia el ancho (girar, ventana).
+const vigiaGrafico = window.ResizeObserver ? new ResizeObserver((es) => es.forEach((e) => dibujarGrafico(e.target))) : null;
+function dibujarGrafico(g) {
+  let d; try { d = JSON.parse(g.dataset.g); } catch (e) { return; }
+  const W = Math.round(g.clientWidth); if (!W || W === +g.dataset.w) return; g.dataset.w = W;
+  const ancha = W >= 560, Hh = ancha ? 240 : 200, izq = 40, der = 6, arr = 30, aba = 24, base = Hh - aba, n = d.v.length;
+  const techo = Math.max(...d.v, 1) * 1.08, paso = (W - izq - der) / n, ancho = Math.max(2, Math.min(paso * 0.62, 64));
+  const yDe = (gb) => base - (base - arr) * gb / techo, x = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const o = [];
+  [[0, "0"], [0.5, d.e[0]], [1, d.e[1]]].forEach(([fr, t]) => {
+    const y = base - (base - arr) * fr;
+    o.push(`<line x1="${izq}" x2="${W - der}" y1="${y}" y2="${y}" class="rej"/><text x="${izq - 6}" y="${y + 4}" text-anchor="end" class="eje" font-size="11">${x(t)}</text>`);
+  });
+  d.v.forEach((gb, i) => {
+    const h = (base - arr) * gb / techo, xx = izq + paso * i + (paso - ancho) / 2;
+    if (h > 0.5) o.push(`<rect x="${xx.toFixed(1)}" y="${(base - h).toFixed(1)}" width="${ancho.toFixed(1)}" height="${h.toFixed(1)}" rx="${Math.min(ancho / 2, 6).toFixed(1)}" class="col${i === n - 1 ? " ult" : ""}" data-i="${i}"/>`);
+  });
+  if (d.p) {
+    const y = yDe(d.p);
+    const txt = "promedio" + (d.pt ? " " + d.pt : ""), tw = Math.ceil(txt.length * 6.4) + 14, ty = Math.max(arr - 4, y - 22);
+    o.push(`<line x1="${izq}" x2="${W - der}" y1="${y.toFixed(1)}" y2="${y.toFixed(1)}" class="prom"/>`
+      + `<rect x="${W - der - tw}" y="${ty.toFixed(1)}" width="${tw}" height="18" rx="9" class="prom-fondo"/>`
+      + `<text x="${W - der - tw / 2}" y="${(ty + 13).toFixed(1)}" text-anchor="middle" class="prom-t" font-size="11">${x(txt)}</text>`);
+  }
+  const cada = Math.max(1, Math.ceil(n / Math.max(1, Math.floor((W - izq - der) / 34))));
+  for (let i = 0; i < n; i += cada) o.push(`<text x="${(izq + paso * i + paso / 2).toFixed(1)}" y="${base + 16}" text-anchor="middle" class="eje" font-size="11">${x(d.d[i])}</text>`);
+  o.push(`<rect class="hit" x="${izq}" y="0" width="${W - izq - der}" height="${base + 4}" fill="transparent"/>`);
+  o.push('<g class="tip" pointer-events="none" visibility="hidden"><rect rx="11" height="24"/><text y="16" font-size="12" font-weight="700"></text></g>');
+  const svg = g.querySelector("svg"); svg.setAttribute("viewBox", `0 0 ${W} ${Hh}`); svg.innerHTML = o.join("");
+}
+function prepararGraficos(raiz) {
+  (raiz || document).querySelectorAll(".grafico[data-g]").forEach((g) => { dibujarGrafico(g); if (vigiaGrafico) vigiaGrafico.observe(g); });
+}
 function posprocesar() {
+  prepararGraficos(vista);
   vista.querySelectorAll("form").forEach(alternarTipo);
   $("#btn-actualizar").style.display = actual === "resumen" ? "" : "none";
   if (actual === "app") { pintarDescanso(); pintarVersion(); }
@@ -924,7 +959,7 @@ async function procesarInvitacion() {
     if (!PRUEBA) {                                   // se ve al instante lo último guardado, sin esperar al motor
       try { const c = JSON.parse(leer("ff-proy") || "null"); if (c && c.activo) { proyectos = c; $("#proyecto-nombre").textContent = c.activo; } } catch (e) {}
       const ini = new URLSearchParams(location.search).get("p") || "resumen";
-      if (ini === "resumen") { const c = leer(claveCache()); if (c) { try { const o = JSON.parse(c); if (o.html) { vista.innerHTML = cabeza("resumen") + o.html; vista.classList.add("carga"); conCache = true; resaltarTab(); } } catch (e) {} } }
+      if (ini === "resumen") { const c = leer(claveCache()); if (c) { try { const o = JSON.parse(c); if (o.html) { vista.innerHTML = cabeza("resumen") + o.html; vista.classList.add("carga"); conCache = true; resaltarTab(); prepararGraficos(vista); } } catch (e) {} } }
     }
     if (conCache) progreso(true); else ocupado(true, "Preparando la app… (la primera vez tarda un poco más)");
   }

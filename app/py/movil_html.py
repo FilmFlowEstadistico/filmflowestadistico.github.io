@@ -147,7 +147,11 @@ def columnas(datos, promedio, promedio_txt=""):
     out.append(f'<rect class="hit" x="{izq}" y="0" width="{W - izq - der}" height="{base + 4}" fill="transparent"/>')
     out.append('<g class="tip" pointer-events="none" visibility="hidden"><rect rx="11" height="24"/><text y="16" font-size="12" font-weight="700"></text></g>')
     pie = (f'<p class="sub g-pie"><span class="g-raya"></span> Promedio{(": " + esc(promedio_txt)) if promedio_txt else ""} · toca o desliza el dedo por las barras para ver cada día</p>')
-    return (f'<div class="grafico" data-ayudas="{ayudas}"><svg viewBox="0 0 {W} {Hh}" style="width:100%;height:auto;display:block" '
+    # data-g: lo mismo en datos para que el navegador la vuelva a dibujar al ancho REAL de la pantalla (si no, en el computador todo se
+    # agrandaba: letras gigantes y barras gordas). El SVG de aquí queda de reserva (360 de ancho, el de un teléfono).
+    g = {"d": [str(d).lstrip("D").lstrip("0") or "0" for d, _g, _t in datos], "v": [round(float(x or 0), 3) for _d, x, _t in datos],
+         "p": round(float(promedio or 0), 3), "pt": promedio_txt or "", "e": [_eje(techo * 0.5), _eje(techo)]}
+    return (f'<div class="grafico" data-g="{html.escape(json.dumps(g, ensure_ascii=False), quote=True)}" data-ayudas="{ayudas}"><svg viewBox="0 0 {W} {Hh}" style="width:100%;height:auto;display:block" '
             f'role="img" aria-label="Volumen por día">{"".join(out)}</svg></div>{pie}')
 
 
