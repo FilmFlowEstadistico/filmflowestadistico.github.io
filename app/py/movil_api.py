@@ -2517,6 +2517,12 @@ def _sincronizar(manual=False, sid_manual=None):
     elif manual:
         out["toast"] = "Todo está sincronizado."
         out["recargar"] = True
+    avisos_s = sc.avisos_de_sync(r)
+    if avisos_s:                                           # cambio de cuenta o proyectos sin acceso: se explica con calma (no un toast)
+        out.pop("toast", None)
+        out["confirmar"] = {"titulo": "Sincronización", "texto": "\n\n".join(avisos_s), "accion": "pagina",
+                            "p": {"nombre": "resumen"}, "boton": "Entendido"}
+        out["recargar"] = True
     return out
 
 

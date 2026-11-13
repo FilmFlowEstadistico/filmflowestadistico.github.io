@@ -472,6 +472,44 @@ def describir(carpeta=None):
             "error": e.get("error", "")}
 
 
+def avisos_de_sync(r):
+    """Los avisos para la persona después de sincronizar (los mismos en el Mac y en el celular)."""
+    out = []
+    if r.get("cuenta_anterior"):
+        out.append(f"Cambiaste de cuenta: los proyectos de {r['cuenta_anterior']} quedaron guardados aparte en este equipo "
+                   "(vuelven si entras otra vez con esa cuenta). Ahora ves solo los de esta cuenta.")
+    if r.get("sin_acceso"):
+        n = len(r["sin_acceso"])
+        out.append(f"Quité de esta cuenta {'el proyecto' if n == 1 else f'{n} proyectos'} {', '.join(r['sin_acceso'])}: "
+                   "esta cuenta no tiene permiso para abrir ninguna de sus hojas.")
+    return out
+
+
+def _ruta_cuenta(carpeta, correo):
+    return Path(carpeta) / "cuentas" / (re.sub(r"[^a-z0-9._@-]", "_", correo.lower()) + ".json")
+
+
+def _guardar_cuenta(carpeta, correo, config, est):
+    """Guarda aparte los proyectos y el estado de sincronización de una cuenta (al cambiar de cuenta en este aparato)."""
+    ruta = _ruta_cuenta(carpeta, correo)
+    try:
+        ruta.parent.mkdir(parents=True, exist_ok=True)
+        tmp = ruta.with_name(ruta.name + ".tmp")
+        tmp.write_text(json.dumps({"config": config, "estado": est}, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(ruta)
+    except OSError:
+        pass
+
+
+def _cargar_cuenta(carpeta, correo):
+    """(config, estado) guardados de esa cuenta en este aparato, o (None, None)."""
+    try:
+        d = json.loads(_ruta_cuenta(carpeta, correo).read_text(encoding="utf-8"))
+        return d.get("config"), d.get("estado")
+    except (OSError, ValueError):
+        return None, None
+
+
 # ---------------------------------------------------------------------------------------- el trabajo
 def sincronizar(http, correo, dispositivo="", crear=True, carpeta=None, ahora=None, gana_local_al_inicio=False, sid_manual=None,
                 forzar_fichas=False):
@@ -483,8 +521,15 @@ def sincronizar(http, correo, dispositivo="", crear=True, carpeta=None, ahora=No
     ruta = carpeta / "config_registro.json"
     ahora = int(ahora or time.time())
     est = leer_estado(carpeta)
+    cuenta_cambiada = None
     if est.get("correo") and correo and est["correo"].lower() != correo.lower():
-        est = {"fichas_unidas": est.get("fichas_unidas") or []}   # otra cuenta de Google: se empieza de cero (las invitaciones quedan)
+        # otra cuenta de Google en este aparato: los proyectos de la anterior se guardan aparte (no se le suben a la cuenta nueva,
+        # como pasó el 12/11/2026) y la cuenta nueva sigue con los suyos (si ya había entrado antes aquí) o empieza vacía
+        cuenta_cambiada = est["correo"]
+        _guardar_cuenta(carpeta, est["correo"], rc.leer_archivo(ruta), est)
+        conf_nueva, est_nuevo = _cargar_cuenta(carpeta, correo)
+        rc.escribir_archivo(conf_nueva or rc._config_vacia(), ruta, sin_aviso=True)
+        est = est_nuevo or {}
     sid = sid_manual or est.get("id") or buscar_id(http)
     creada = False
     if not sid:
@@ -567,6 +612,35 @@ def sincronizar(http, correo, dispositivo="", crear=True, carpeta=None, ahora=No
         elif ganador == "local" and (not r or _huella(r["p"]) != l[2]):
             subidos.append(n)
 
+    # proyectos en los que esta cuenta no puede abrir NINGUNA de sus hojas (p. ej. se colaron de otra cuenta): se quitan y se avisa.
+    # Cada proyecto se revisa una vez por cuenta (y otra vez si cambian sus hojas); un error de red no quita nada.
+    sin_acceso, revisados = [], dict(est.get("revisados") or {})
+    for n, e in list(final.items()):
+        if e["p"].get("origen") or n == PROYECTO_INICIAL:
+            continue
+        ids = [x for x, _q in hojas_del_proyecto(e["p"])]
+        firma = ",".join(sorted(ids))
+        if not ids or revisados.get(n) == firma:
+            continue
+        codigos = []
+        for x in ids:
+            try:
+                codigos.append(http("GET", f"{SHEETS}/{x}?fields=spreadsheetId", None)[0])
+            except Exception:
+                codigos.append(0)
+        if all(c == 403 for c in codigos):                     # 403 = Google dice «sin permiso» (una hoja borrada da 404: no se quita)
+            sin_acceso.append(n)
+            final.pop(n)
+            tumbas[n] = max(tumbas.get(n, 0), ahora)
+            perdidos.add(n)
+            for lista in (bajados, subidos):
+                if n in lista:
+                    lista.remove(n)
+            if n in loc:
+                borrados.append(n)
+        elif any(200 <= c < 300 for c in codigos):
+            revisados[n] = firma
+
     if not final:                                              # nunca se deja la app sin proyectos (salvo los que te quitaron)
         final = {n: {"p": copy.deepcopy(v[0]), "mod": v[1]} for n, v in loc.items() if n not in perdidos}
 
@@ -613,9 +687,10 @@ def sincronizar(http, correo, dispositivo="", crear=True, carpeta=None, ahora=No
                      "proyectos": {n: {"h": _huella(e["p"]), "mod": e["mod"]} for n, e in final.items()},
                      "borrados": doc["borrados"], "fichas": fichas,
                      "fichas_unidas": [f for f in (est.get("fichas_unidas") or []) if f not in perdidas_f],
-                     "fichas_propias": {n: h for n, h in propias.items() if n in final}}, carpeta)
+                     "fichas_propias": {n: h for n, h in propias.items() if n in final},
+                     "revisados": {n: f for n, f in revisados.items() if n in final}}, carpeta)
     return {"estado": "ok", "sid": sid, "creada": creada, "bajados": bajados, "subidos": subidos, "borrados": borrados,
-            "proyectos": len(final)}
+            "proyectos": len(final), "sin_acceso": sin_acceso, "cuenta_anterior": cuenta_cambiada}
 
 
 def anotar_error(texto, carpeta=None):
