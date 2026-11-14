@@ -7,7 +7,7 @@ const PRUEBA = window.FILMFLOW_PRUEBA || null;       // solo lo pone el entorno 
 const base = new URL("./", location.href).href;
 const $ = (s) => document.querySelector(s);
 const vista = $("#vista");
-const PAGINAS_GOOGLE = new Set(["resumen", "registrar", "hojas", "correo"]);
+const PAGINAS_GOOGLE = new Set(["resumen", "registrar", "hojas", "reporte", "correo"]);
 const PERMISOS = "https://www.googleapis.com/auth/spreadsheets openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/drive.file";
 let actual = "resumen";
 let sesion = { token: null, exp: 0, correo: null };
@@ -508,8 +508,16 @@ function prepararRuedas(raiz) {
     });
   });
 }
+function ponerPasoReporte() {        // pestaña «Reporte» en el teléfono: Días / Contenido / Vista previa (uno a la vez)
+  const g = vista.querySelector(".rep-grid"); if (!g) return;
+  const paso = leer("ff-rep-paso") || "dias";
+  g.dataset.paso = paso;
+  vista.querySelectorAll('.rep-pasos .seg').forEach((b) => { b.classList.toggle("on", b.dataset.v === paso); b.setAttribute("aria-selected", b.dataset.v === paso); });
+  prepararRuedas(g);
+  if (innerWidth >= 1000) vista.querySelectorAll("details.sec-grupo").forEach((d) => { d.open = true; });
+}
 function posprocesar() {
-  prepararGraficos(vista); prepararRuedas(vista);
+  prepararGraficos(vista); prepararRuedas(vista); ponerPasoReporte();
   vista.querySelectorAll("form").forEach(alternarTipo);
   $("#btn-actualizar").style.display = actual === "resumen" ? "" : "none";
   if (actual === "app") { pintarDescanso(); pintarVersion(); }
@@ -540,7 +548,7 @@ function bienvenida() {
     <p class="nota" style="margin-top:14px">Tip: en Safari toca Compartir → «Agregar a pantalla de inicio» para usarla como una app.</p></section>`;
 }
 function cabeza(nombre) {
-  const t = { resumen: "Resumen", registrar: "Registrar día", hojas: "Hojas conectadas", correo: "Correo", ajustes: "Ajustes del proyecto", app: "Ajustes de la app" }[nombre];
+  const t = { resumen: "Resumen", registrar: "Registrar día", hojas: "Hojas conectadas", reporte: "Reporte", correo: "Correo", ajustes: "Ajustes del proyecto", app: "Ajustes de la app" }[nombre];
   const atras = nombre === "app" ? `<button class="atras" data-ir="${ultimaTab}">‹ Volver</button>` : "";
   return `<header class="cab-pagina">${atras}<h1>${t}</h1></header>`;
 }
@@ -585,6 +593,7 @@ async function mostrar(r, nuevaPagina) {
     if (r.scroll) setTimeout(() => vista.querySelector(r.scroll)?.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
     if (actual === "resumen" && !PRUEBA && !r.html.includes("Un momento") && !r.html.includes('id="reporte-panel"')) guardar(claveCache(), JSON.stringify({ html: r.html, t: Date.now() }));
   }
+  if (r.preview !== undefined && r.pagina === actual) pintarVista(r.preview);
   if (r.toast) toast(r.toast);
   if (r.reporte) await abrirReporte(r.reporte);
   if (r.sync_pendiente && tokenVigente()) programarSync();
@@ -656,6 +665,7 @@ async function copiar(texto, html) {
 
 const JS = {
   conectar, desconectar,
+  rep_paso(el) { guardar("ff-rep-paso", el.dataset.v); ponerPasoReporte(); scrollTo({ top: 0, behavior: "smooth" }); },
   descanso_min(el) { guardar("ff-descanso", el.dataset.v); pintarDescanso(); toast(el.dataset.v === "0" ? "Descanso: nunca" : "Descanso tras " + el.textContent); },
   descansar() { mostrarPortada("descanso"); },
   buscar_version() { revisarVersion(true); },
@@ -705,6 +715,28 @@ const logoComoDato = async (ruta) => {
     return await new Promise((ok) => { const f = new FileReader(); f.onload = () => ok(f.result); f.onerror = () => ok(ruta); f.readAsDataURL(b); });
   } catch (e) { return ruta; }
 };
+// ---- Vista previa del PDF en la pestaña «Reporte»: el mismo HTML del reporte, dibujado al ancho de una hoja (860 px, como el PDF) y
+// achicado para que quepa en la tarjeta; la altura sigue a la del documento. Se guarda dónde ibas para no saltar al cambiar algo.
+let vistaHtml = "";
+async function pintarVista(html) {
+  const caja = vista.querySelector(".rep-vista"), fr = caja && caja.querySelector("iframe");
+  if (!fr) return;
+  const conLogos = html.replace("LOGO_CLARO", await logoComoDato("assets/logo_filmflow_claro.png"))
+                       .replace("LOGO_OSCURO", await logoComoDato("assets/logo_filmflow_oscuro.png"));
+  vistaHtml = conLogos;
+  const ANCHO = 860;
+  const ajustar = () => {
+    try {
+      const s = Math.min(1, caja.clientWidth / ANCHO), d = fr.contentDocument;
+      const alto = Math.max(d.documentElement.scrollHeight, d.body ? d.body.scrollHeight : 0);
+      fr.style.width = ANCHO + "px"; fr.style.height = alto + "px"; fr.style.transform = `scale(${s})`;
+      caja.style.height = Math.ceil(alto * s) + "px";
+    } catch (e) {}
+  };
+  fr.onload = () => { ajustar(); setTimeout(ajustar, 300); };
+  fr.srcdoc = conLogos;
+  if (!caja.dataset.vigia && window.ResizeObserver) { caja.dataset.vigia = "1"; new ResizeObserver(ajustar).observe(caja); }
+}
 async function abrirReporte(rep) {
   const html = rep.html.replace("LOGO_CLARO", await logoComoDato("assets/logo_filmflow_claro.png"))
                        .replace("LOGO_OSCURO", await logoComoDato("assets/logo_filmflow_oscuro.png"));

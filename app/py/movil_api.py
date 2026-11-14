@@ -27,7 +27,7 @@ from registro_core import ErrorRegistro
 
 web_shim.instalar_google(rg)
 
-PAGINAS = ("resumen", "registrar", "hojas", "correo", "ajustes", "app")
+PAGINAS = ("resumen", "registrar", "hojas", "reporte", "correo", "ajustes", "app")
 ICO_PDF = '<svg viewBox="0 0 24 24"><path d="M6 3.5h9l4 4V20a.5.5 0 0 1-.5.5h-12A.5.5 0 0 1 6 20z"/><path d="M14.5 3.5V8H19M9 13h6M9 16.5h4"/></svg>'
 
 E = {   # el estado de la sesión (lo que en el Mac vive en el diccionario «estado»)
@@ -401,11 +401,9 @@ def html_resumen():
     camaras_v = vista["camaras"] if vista else m["camaras"]
     serie_v = vista["serie"] if vista else m["serie"]
     out = []
-    if E["reporte"]:
-        out.append(html_reporte(m))                    # el panel va ARRIBA; el Resumen sigue completo debajo
-    elif m["serie"]:
+    if m["serie"]:
         out.append(f'<div class="reporte-abrir"><button class="btn reporte-btn" {a("reporte_abrir")}><span class="ico">📄</span>'
-                   '<span><b>Sacar reporte para enviar</b><small>Un día, una semana o las fechas que quieras</small></span>'
+                   '<span><b>Reporte</b><small>Un día, una semana o las fechas que quieras, en PDF</small></span>'
                    '<span class="flecha">›</span></button></div>')
     repetidos = [x for x in m["avisos"] if x[1].startswith(("Rollo repetido", "Revisa el último rollo"))]
     if repetidos:
@@ -570,17 +568,48 @@ def html_rueda(r, semanas):
             f'{columna("hasta", "Hasta", h)}</div><p class="ri-detalle">{esc(detalle)}</p>')
 
 
+def _iniciar_reporte(m, modo=None):
+    unidad = E["vista_unidad"] if E["vista_unidad"] in {u["id"] for u in m.get("unidades") or []} else None
+    elegidos = rpt.inicial(m, unidad)
+    ref = max(elegidos) if elegidos else datetime.now().date()
+    E["reporte"] = {"tipo": "semana", "elegidos": elegidos, "mes": (ref.year, ref.month), "unidad": unidad,
+                    "modo": modo if modo in ("claro", "oscuro") else "claro", "completo": False, "secciones": rpt.secciones_de("resumen")}
+
+
+def html_secciones(r, datos):
+    """La lista de lo que puede llevar el PDF, por grupos: cada cosa con su interruptor y su explicación. Lo que no tiene datos sale
+    apagado y dice por qué."""
+    sec = r.get("secciones") or rpt.secciones_de("resumen")
+    no = rpt.secciones_disponibles(datos) if datos else {}
+    preset = rpt.preset_de(sec)
+    out = [H.segmentado([("resumen", "Resumen"), ("detallado", "Detallado")] + ([("personalizado", "Personalizado")] if preset == "personalizado" else []),
+                        preset, "reporte_preset"),
+           '<p class="nota">«Resumen» es lo de siempre; «Detallado» prende todo lo que tenga datos. Abre cada grupo para elegir.</p>']
+    for k, grupo in enumerate(rpt.GRUPOS_SECCIONES):
+        filas, n_on, n_tot = [], 0, 0
+        for sid, g, nombre, expl, _r, _d in rpt.SECCIONES:
+            if g != grupo:
+                continue
+            falta = no.get(sid)
+            marcado = sid in sec and not falta
+            n_tot += 0 if falta else 1
+            n_on += 1 if marcado else 0
+            filas.append(f'<label class="sec-op{" sin-datos" if falta else ""}" title="{esc(expl)}">'
+                         f'<input type="checkbox" class="sw" {a("reporte_seccion", id=sid)} {"checked" if marcado else ""} {"disabled" if falta else ""}>'
+                         f'<span class="sec-txt"><b>{esc(nombre)}</b><small>{esc(("No disponible: " + falta) if falta else expl)}</small></span></label>')
+        out.append(f'<details class="sec-grupo" data-k="rep-{esc(grupo)}"{" open" if k == 0 else ""}><summary><span class="sec-tit">{esc(grupo)}</span>'
+                   f'<span class="sec-cuenta">{n_on} de {n_tot}</span></summary>{"".join(filas)}</details>')
+    return "".join(out)
+
+
 def html_reporte(m):
     r = E["reporte"]
     fechas = rpt.rodados(m, r["unidad"])
-    out = ['<div id="reporte-panel"></div>']
-    cuerpo = ('<p class="sub">Elige un día, una semana o los días que quieras (seguidos o sueltos). Sale una página con el almacenamiento '
-              'de esos días por cámara, sus gráficas y el avance del proyecto, lista para compartir o guardar en PDF.</p>')
+    cuerpo = ''
     unidades = m.get("unidades") or []
     if len(unidades) > 1:                              # primero: de qué unidad (o todas juntas)
         cuerpo += ('<p class="nota"><b>¿De qué unidad?</b></p>'
-                   + H.segmentado([("todo", "Todas")] + [(u["id"], u["nombre"]) for u in unidades], r["unidad"] or "todo", "reporte_unidad")
-                   + '<p class="nota">«Todas» suma las unidades y muestra cuánto puso cada una; o elige una para su reporte por separado.</p>')
+                   + H.segmentado([("todo", "Todas")] + [(u["id"], u["nombre"]) for u in unidades], r["unidad"] or "todo", "reporte_unidad"))
     cuerpo += H.segmentado(list(rpt.TIPOS), r["tipo"], "reporte_tipo")
     botones = [H.boton(t, "reporte_rango", "mini", tipo=tipo_, fechas=sorted(f.isoformat() for f in e))
                for t, tipo_, e in rpt.atajos(m, r["unidad"])]
@@ -590,63 +619,80 @@ def html_reporte(m):
     semanas = rpt.semanas_del_proyecto(m, r["unidad"])
     if r["tipo"] == "semana" and semanas:
         cuerpo += html_rueda(r, semanas)
-        cuerpo += ('<p class="nota">Gira las ruedas como en el reloj del iPhone: la semana de la franja del centro es la elegida. '
-                   'Para una sola semana, deja las dos en la misma.</p>')
     else:
         cuerpo += html_calendario(r, fechas)
         ayuda = {"dia": "Toca un día.", "semana": "Toca cualquier día: se elige su semana (lunes a domingo).",
                  "dias": "Toca cada día que quieras; tócalo otra vez para quitarlo."}[r["tipo"]]
         cuerpo += f'<p class="nota">{esc(ayuda)} El punto verde marca los días con material.</p>'
-    out.append(H.tarjeta(cuerpo, "Sacar un reporte", H.boton("Cerrar", "reporte_cerrar", "mini")))
     datos = rpt.armar(m, r["elegidos"], r["unidad"], modo=r["tipo"]) if r["elegidos"] else None
     res = (f'<span class="chip info">{esc(datos["unidad"])}</span>' if datos and datos.get("unidad") else "")
-    if datos and datos["dias"]:                       # cómo se va a llamar el reporte (así se ve en la portada)
-        res += (f'<div class="rep-nombre"><span>{esc(datos["proyecto_bonito"] or datos["proyecto"])}</span>'
-                f'<b>{esc(datos["titulo_grande"])}</b></div>')
-    res += f'<div class="periodo-txt">{esc(datos["periodo"] if datos else "Ningún día")}</div>'
     if datos and datos["dias"]:
         t = datos["totales"]
-        linea = f"{t['dias']} día{'s' if t['dias'] != 1 else ''} de rodaje ({rpt.texto_dias(datos)}) · {rsm.texto_peso(t['gb'])}"
-        if datos["semanas"]:
-            linea += " · " + rpt.texto_semanas(datos["semanas"])
-        res += f'<p class="sub">{esc(linea)}</p>'
+        res += (f'<div class="rep-nombre"><span>{esc(datos["proyecto_bonito"] or datos["proyecto"])}</span>'
+                f'<b>{esc(datos["titulo_grande"])}</b></div>'
+                f'<p class="sub">{esc(datos["periodo"])} · {t["dias"]} día{"s" if t["dias"] != 1 else ""} · {esc(rsm.texto_peso(t["gb"]))}</p>')
     else:
-        res += H.aviso("aviso", "No hay material registrado en los días elegidos." if r["elegidos"] else "Toca los días en el calendario.")
-    res += '<p class="nota">Apariencia del reporte</p>' + H.segmentado([("claro", "Claro"), ("oscuro", "Oscuro")], r["modo"], "reporte_modo")
-    res += '<p class="nota">Contenido</p>' + H.segmentado([("resumen", "Resumen"), ("detallado", "Detallado")],
-                                                          "detallado" if r["completo"] else "resumen", "reporte_contenido")
-    res += ('<p class="nota">' + ("Detallado agrega cada cámara con sus rollos, cada tarjeta y todos los días del proyecto." if r["completo"]
-                                  else "Como el «Resumen General» de tu estadístico, solo con los días elegidos.") + "</p>")
-    out.append(H.tarjeta(res, "Días elegidos"))
-    return "".join(out)
+        res += H.aviso("aviso", "No hay material registrado en los días elegidos." if r["elegidos"] else "Elige los días en el calendario.")
+    apariencia = '<p class="nota">Apariencia del PDF</p>' + H.segmentado([("claro", "Claro"), ("oscuro", "Oscuro")], r["modo"], "reporte_modo")
+    vista = ('<div class="rep-vista" aria-label="Vista previa del PDF"><iframe title="Vista previa del reporte" scrolling="no"></iframe></div>'
+             if datos and datos["dias"] else H.vacia("Sin vista previa", "Elige días con material para ver cómo queda el PDF."))
+    # En el teléfono la pestaña va en tres pasos (uno a la vez, para no hacer una página larguísima); en pantalla ancha se ve todo junto
+    pasos = ('<div class="rep-pasos segmentado" role="tablist">'
+             '<button class="seg" data-js="rep_paso" data-v="dias" role="tab" title="Elegir los días del reporte">1 · Días</button>'
+             '<button class="seg" data-js="rep_paso" data-v="contenido" role="tab" title="Elegir qué lleva el PDF y si es claro u oscuro">2 · Contenido</button>'
+             '<button class="seg" data-js="rep_paso" data-v="vista" role="tab" title="Ver cómo queda el PDF">3 · Vista previa</button></div>')
+    izq = (f'<div data-paso-de="dias">{H.tarjeta(cuerpo, "¿Qué días?")}</div>'
+           f'<div data-paso-de="contenido">{H.tarjeta(apariencia + html_secciones(r, datos), "¿Qué lleva el PDF?")}</div>')
+    der = f'<div data-paso-de="vista">{H.tarjeta(vista, "Vista previa del PDF")}</div>'
+    return (f'<div id="reporte-panel"></div><div class="rep-cab">{res}</div>{pasos}'
+            f'<div class="rep-grid" data-paso="dias"><div class="rep-col">{izq}</div><div class="rep-col rep-col-vista">{der}</div></div>')
+
+
+def _datos_reporte(paleta=None):
+    r, m = E["reporte"], E["resumen"]
+    if not r or m is None or not r["elegidos"]:
+        return None
+    datos = rpt.armar(m, r["elegidos"], r["unidad"], paleta=paleta, modo=r["tipo"])
+    return datos if datos["dias"] else None
 
 
 def _repintar_reporte(extra=None):
-    r = {"pagina": "resumen", "html": html_resumen()}
-    rr = E["reporte"]
     m = E["resumen"]
-    if rr and m:
-        hay = any(d.get("fecha") in rr["elegidos"] for d in m["serie"])
-        r["barra"] = ('<button class="btn acento" ' + a("reporte_crear") + (">" if hay else " disabled>") + "Crear reporte</button>")
+    if m is None:
+        r = {"pagina": "reporte", "html": html_resumen()}
+        r.update(extra or {})
+        return r
+    if not E["reporte"]:
+        _iniciar_reporte(m)
+    rr = E["reporte"]
+    r = {"pagina": "reporte", "html": html_reporte(m)}
+    datos = _datos_reporte(tema.PALETA_ROLLOS)
+    r["barra"] = ('<button class="btn acento" ' + a("reporte_crear") + (">" if datos else " disabled>") + "Crear reporte</button>")
+    if datos:                                         # la vista previa: el mismo HTML del PDF (el navegador pone los logos de verdad)
+        r["preview"] = rpt.a_html(datos, rr["modo"], {"claro": "LOGO_CLARO", "oscuro": "LOGO_OSCURO"}, barra=False,
+                                  secciones=rr.get("secciones"))
     r.update(extra or {})
     return r
 
 
+def pagina_reporte(p=None):
+    vieja = bool(E["resumen_hora"] and (datetime.now() - E["resumen_hora"]).total_seconds() > 300)
+    if vieja or E["resumen"] is None or E["proyecto"] != rc.listar_proyectos()[1]:
+        leer_resumen(False)
+        E["reporte"] = None
+    return _repintar_reporte()
+
+
 def reporte_abrir(p):
-    m = E["resumen"]
-    if m is None:
+    """El botón del Resumen: lleva a la pestaña «Reporte»."""
+    if E["resumen"] is None:
         return {"toast": "Primero tengo que leer tus hojas."}
-    unidad = E["vista_unidad"] if E["vista_unidad"] in {u["id"] for u in m.get("unidades") or []} else None
-    elegidos = rpt.inicial(m, unidad)
-    ref = max(elegidos) if elegidos else datetime.now().date()
-    E["reporte"] = {"tipo": "semana", "elegidos": elegidos, "mes": (ref.year, ref.month), "unidad": unidad,
-                    "modo": p.get("modo") if p.get("modo") in ("claro", "oscuro") else "claro", "completo": False}
-    return _repintar_reporte({"scroll": "#reporte-panel"})
+    E["reporte"] = None
+    return {"ir": "reporte"}
 
 
 def reporte_cerrar(p):
-    E["reporte"] = None
-    return _repintar_reporte()
+    return {"ir": "resumen"}
 
 
 def _con_reporte(f):
@@ -707,7 +753,22 @@ def reporte_modo(p):
 
 
 def reporte_contenido(p):
-    return _con_reporte(lambda r, _f_: r.update(completo=p["valor"] == "detallado"))
+    return reporte_preset({"valor": p.get("valor")})
+
+
+def reporte_preset(p):
+    v = p.get("valor")
+    if v not in ("resumen", "detallado"):
+        return _repintar_reporte()
+    return _con_reporte(lambda r, _f_: r.update(secciones=rpt.secciones_de(v), completo=v == "detallado"))
+
+
+def reporte_seccion(p):
+    def f(r, _f_):
+        sec = set(r.get("secciones") or rpt.secciones_de("resumen"))
+        (sec.add if p.get("valor") else sec.discard)(p.get("id"))
+        r["secciones"] = sec
+    return _con_reporte(f)
 
 
 def reporte_crear(p):
@@ -715,9 +776,11 @@ def reporte_crear(p):
     if not r or m is None or not r["elegidos"]:
         return _repintar_reporte()
     datos = rpt.armar(m, r["elegidos"], r["unidad"], paleta=tema.PALETA_ROLLOS, modo=r["tipo"])
+    if not datos["dias"]:
+        return _repintar_reporte()
     # el navegador cambia LOGO_CLARO / LOGO_OSCURO por los logos de verdad (así el archivo se puede mandar solo)
     # sin los botones de arriba: el archivo que se comparte desde el teléfono queda limpio (la app ya tiene Compartir y PDF)
-    pagina_ = rpt.a_html(datos, r["modo"], {"claro": "LOGO_CLARO", "oscuro": "LOGO_OSCURO"}, barra=False, completo=r["completo"])
+    pagina_ = rpt.a_html(datos, r["modo"], {"claro": "LOGO_CLARO", "oscuro": "LOGO_OSCURO"}, barra=False, secciones=r.get("secciones"))
     return _repintar_reporte({"reporte": {"html": pagina_, "nombre": rpt.nombre_archivo(datos, "html"),
                                           "titulo": f"{datos['titulo_grande']} · {datos['proyecto_bonito'] or datos['proyecto']} · {datos['periodo']}"}})
 
@@ -727,7 +790,7 @@ def pagina_resumen(p=None):
     vieja = bool(E["resumen_hora"] and (datetime.now() - E["resumen_hora"]).total_seconds() > 300)
     if forzar or vieja or E["resumen"] is None or E["proyecto"] != rc.listar_proyectos()[1]:
         leer_resumen(forzar)
-    r = _repintar_reporte() if E["reporte"] else {"pagina": "resumen", "html": html_resumen()}
+    r = {"pagina": "resumen", "html": html_resumen()}
     if E["resumen_hora"]:
         r["subtitulo"] = f'Actualizado {esc(hace_cuanto(E["resumen_hora"]))} · jala hacia abajo para actualizar'
     return r
@@ -2615,7 +2678,7 @@ def sync_enlace(p):
 
 
 def _pagina(nombre, p=None):
-    return {"resumen": pagina_resumen, "registrar": pagina_registrar, "hojas": pagina_hojas, "correo": pagina_correo, "ajustes": pagina_ajustes, "app": pagina_app}[nombre](p)
+    return {"resumen": pagina_resumen, "registrar": pagina_registrar, "hojas": pagina_hojas, "reporte": pagina_reporte, "correo": pagina_correo, "ajustes": pagina_ajustes, "app": pagina_app}[nombre](p)
 
 
 def pagina(p):
@@ -2636,7 +2699,7 @@ ACCIONES = {k: v for k, v in globals().items() if callable(v) and not k.startswi
     "mover_rollo", "elegir_proyecto", "renombrar_pedir", "renombrar_ok", "nuevo_pedir", "nuevo_ok", "nuevo_conectar", "eliminar_proyecto", "eliminar_ok",
     "correo_pdf", "correo_usar_registro", "correo_prefijo", "cuenta", "sincronizar", "sync_enlace", "nuevo_dia",
     "reporte_abrir", "reporte_cerrar", "reporte_tipo", "reporte_tocar", "reporte_mes", "reporte_rango", "reporte_unidad", "reporte_modo", "reporte_contenido",
-    "reporte_crear", "reporte_semana", "reporte_semanas", "color_en_hojas_ok", "equipo_agregar", "equipo_cancelar", "equipo_guardar", "equipo_dar_acceso", "equipo_quitar", "equipo_quitar_ok", "unirse", "unirse_pedir"}}
+    "reporte_crear", "reporte_semana", "reporte_semanas", "reporte_preset", "reporte_seccion", "color_en_hojas_ok", "equipo_agregar", "equipo_cancelar", "equipo_guardar", "equipo_dar_acceso", "equipo_quitar", "equipo_quitar_ok", "unirse", "unirse_pedir"}}
 
 
 def _firma_config():

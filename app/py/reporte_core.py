@@ -992,14 +992,90 @@ def _dos(f, *a, **k):
     return f'<div class="g-ancha">{f(*a, **k)}</div><div class="g-angosta">{f(*a, **angosta)}</div>'
 
 
-def _pagina_resumen(datos, logo, completo=False):
-    """El reporte: lo del «Resumen General» del estadístico, solo de los días elegidos, con gráficas fáciles de leer.
-    Sin cajas dentro de cajas: la página es plana y cada bloque es una sola tarjeta. `completo` (Detallado) agrega, con el mismo diseño,
-    el material por tipo, cada cámara con sus rollos, todos los datos de cada día, todos los días del proyecto y cada tarjeta."""
+# ---------------------------------------------------------------------------------------------
+# QUÉ PUEDE LLEVAR EL REPORTE. Cada bloque se prende o se apaga en la pestaña «Reporte» (Mac y celular). (id, grupo, nombre, explicación,
+# va en «Resumen», va en «Detallado»). El orden de la lista es el orden en el PDF.
+# ---------------------------------------------------------------------------------------------
+SECCIONES = [
+    ("equipo", "Encabezado", "Equipo de producción", "Producción, dirección, DOP, DIT y data manager (del estadístico).", True, True),
+    ("avisos", "Encabezado", "Avisos", "Días sin fecha, material que no se pudo leer y otras advertencias.", True, True),
+    ("cifras", "Cifras", "Cifras principales", "Espacio OCF, días rodados, promedio por día y duración.", True, True),
+    ("comparacion", "Cifras", "Comparación con el periodo anterior", "Cuánto subió o bajó frente a la semana o los días anteriores.", True, True),
+    ("clips", "Cifras", "Clips y tarjetas", "Clips de video, clips de audio y tarjetas descargadas.", False, True),
+    ("sonido", "Cifras", "Sonido", "Peso, clips y duración del audio.", False, True),
+    ("extremos", "Cifras", "Día con más y con menos material", "El día más pesado y el más liviano del periodo.", False, True),
+    ("por_unidad", "Unidades", "Cuánto puso cada unidad", "Con varias unidades: su parte del total, sus cámaras y su equipo.", True, True),
+    ("alm_camara", "Cámaras", "Almacenamiento por cámara", "Barras con lo que pesó cada cámara y el audio.", True, True),
+    ("tabla_camaras", "Cámaras", "Cámaras y rollos", "Cada cámara con sus rollos, tarjetas, clips, duración y tamaño.", False, True),
+    ("equipos", "Cámaras", "Equipo y rental de cada cámara", "Modelo de cámara y casa de rental de cada rollo.", False, True),
+    ("tipos", "Cámaras", "Material por tipo", "Cámaras, sonido, drones y otros por separado.", False, True),
+    ("graf_dias", "Días", "Gráfica de TB por día", "Una columna por día con el promedio.", True, True),
+    ("tabla_dias", "Días", "Tabla día por día", "Total, duración y clips de cada día.", True, False),
+    ("detalle_dias", "Días", "Día por día completo", "Tarjetas, clips de video y de audio, duración y tamaño de cada día.", False, True),
+    ("tarjetas", "Días", "Tarjeta por tarjeta", "Cada tarjeta (BIN) de cada día con cámara, modelo, # Mag, clips y tamaño.", False, True),
+    ("graf_semanas", "Semanas", "Gráfica de TB por semana", "Una columna por semana del proyecto.", True, True),
+    ("tabla_semanas", "Semanas", "Resumen por semana", "Días, total, promedio y duración de cada semana.", True, True),
+    ("avance", "Proyecto", "Avance del proyecto", "Días rodados de los previstos y espacio usado del estimado.", True, True),
+    ("prevision", "Proyecto", "Lo que falta", "Días por rodar y espacio que falta según el promedio.", False, True),
+    ("linea_proyecto", "Proyecto", "Todo el proyecto en una gráfica", "Los GB de cada día del proyecto, con los de este reporte en verde.", False, True),
+    ("tabla_proyecto", "Proyecto", "Todos los días del proyecto", "Almacenamiento y tiempo rodado de cada día, también los por rodar.", False, True),
+    ("formato", "Formato", "Formato de grabación", "Resolución, códec, cámara y demás datos del estadístico.", True, True),
+]
+GRUPOS_SECCIONES = list(dict.fromkeys(g for _i, g, *_r in SECCIONES))
+
+
+def secciones_de(preset="resumen"):
+    """Las secciones prendidas de un preset: «resumen» (corto, como el «Resumen General» del estadístico) o «detallado» (todo)."""
+    k = 4 if preset != "detallado" else 5
+    return {x[0] for x in SECCIONES if x[k]}
+
+
+def preset_de(secciones):
+    """«resumen», «detallado» o «personalizado» según lo prendido."""
+    s_ = set(secciones or ())
+    for p_ in ("resumen", "detallado"):
+        if s_ == secciones_de(p_):
+            return p_
+    return "personalizado"
+
+
+def secciones_disponibles(datos):
+    """Las secciones que tienen algo que mostrar con ESTOS datos (las demás se ven apagadas y con la razón)."""
+    t, g = datos["totales"], datos["general"]
+    no = {}
+    if not datos["equipo"]:
+        no["equipo"] = "tu estadístico no trae el equipo de producción"
+    if not datos["avisos"]:
+        no["avisos"] = "no hay avisos"
+    if not datos["anterior"]:
+        no["comparacion"] = "no hay un periodo anterior con material"
+    if not t.get("clips_audio") and not t.get("seg_audio") and not any(c["tipo"] == "sonido" for c in datos["camaras"]):
+        no["sonido"] = "no hay audio en estos días"
+    if t["dias"] < 2:
+        no["extremos"] = no["graf_dias"] = "hace falta más de un día"
+    if not datos.get("por_unidad"):
+        no["por_unidad"] = "el proyecto tiene una sola unidad"
+    if len(datos["por_semana"]) < 2:
+        no["graf_semanas"] = no["tabla_semanas"] = "los días elegidos son de una sola semana"
+    if not g["gb"]:
+        no["avance"] = no["prevision"] = no["linea_proyecto"] = no["tabla_proyecto"] = "no hay estadístico con días"
+    elif not (g["dias_previstos"] or g["espacio_previsto_gb"]):
+        no["prevision"] = "tu estadístico no dice cuántos días ni cuánto espacio se prevén"
+    if not datos["formato"]:
+        no["formato"] = "tu estadístico no trae el formato de grabación"
+    if not any(any(x["bin"] for x in d["lista"]) for d in datos["dias"]):
+        no["tarjetas"] = "este reporte sale solo del estadístico (sin estatus de tarjetas)"
+    if not datos["tipos"] or len(datos["tipos"]) < 2:
+        no["tipos"] = "todo el material es de un solo tipo"
+    return no
+
+
+def _pagina_resumen(datos, logo, completo=False, secciones=None):
+    """El reporte con las secciones elegidas (por defecto: las del preset «Resumen», o todas con `completo`). Sin cajas dentro de
+    cajas: la página es plana y cada bloque es una sola tarjeta."""
+    sec = set(secciones) if secciones is not None else secciones_de("detallado" if completo else "resumen")
     t, g, ant = datos["totales"], datos["general"], datos["anterior"]
     out = []
-    meta = [datos["proyecto"] or "", texto_dias(datos) if t["dias"] else "", texto_semanas(datos["semanas"]),
-            "generado " + datos["generado"].strftime("%d/%m/%Y %H:%M")]
     meta = [texto_dias(datos) if t["dias"] else "", "generado " + datos["generado"].strftime("%d/%m/%Y %H:%M")]
     chip_u = f'<span class="u-chip">{_e(datos["unidad"])}</span>' if datos.get("unidad") else ""
     tg = datos.get("titulo_grande") or titulo_grande(datos["titulo"])
@@ -1010,50 +1086,77 @@ def _pagina_resumen(datos, logo, completo=False):
                f'<h1 class="p-titulo">{_e(tg)}</h1>'
                + (f'<div class="periodo">{_e(periodo)}</div>' if periodo else "") +
                f'<div class="meta">{" · ".join(_e(x) for x in meta if x)}</div></div>{logo}</header>')
-    for a in datos["avisos"]:
-        out.append(f'<div class="aviso">{_e(a)}</div>')
-    if datos["equipo"]:
+    if "avisos" in sec:
+        for a in datos["avisos"]:
+            out.append(f'<div class="aviso">{_e(a)}</div>')
+    if "equipo" in sec and datos["equipo"]:
         out.append('<div class="equipo">' + "".join(f'<div><span>{_e(k)}</span><b>{_e(v)}</b></div>' for k, v in datos["equipo"].items())
                    + "</div>")
     # ---- cifras ----
-    cambio = ""
-    if ant and ant["gb"] and t["dias"]:
+    cifras = []
+    if "cifras" in sec:
+        cambio = ""
+        if "comparacion" in sec and ant and ant["gb"] and t["dias"]:
+            dif = (t["gb"] - ant["gb"]) / ant["gb"]
+            cambio = f'<i class="{"sube" if dif >= 0 else "baja"}">{"▲" if dif >= 0 else "▼"} {abs(dif) * 100:.0f} % vs. {_e(ant["texto"])}</i>'
+        cifras += [("Espacio OCF", f'{t["tb"]:,.2f} TB', cambio or f'<i>{t["gb"]:,.2f} GB</i>'),
+                   ("Días rodados", str(t["dias"]), f'<i>{_e(texto_semanas(datos["semanas"]) or datos["periodo"])}</i>'),
+                   ("Promedio por día", f'{t["promedio_gb"] / rsm.GB_POR_TB:,.2f} TB', f'<i>{t["promedio_gb"]:,.0f} GB</i>'),
+                   ("Duración", _dur(t["seg"]).replace(" h", "") + " h" if t["seg"] else "—",
+                    f'<i>{_num(t["clips"])} clips de video</i>' if t["clips"] else "")]
+    elif "comparacion" in sec and ant and ant["gb"] and t["dias"]:
         dif = (t["gb"] - ant["gb"]) / ant["gb"]
-        cambio = f'<i class="{"sube" if dif >= 0 else "baja"}">{"▲" if dif >= 0 else "▼"} {abs(dif) * 100:.0f} % vs. {_e(ant["texto"])}</i>'
-    cifras = [("Espacio OCF", f'{t["tb"]:,.2f} TB', cambio or f'<i>{t["gb"]:,.2f} GB</i>'),
-              ("Días rodados", str(t["dias"]), f'<i>{_e(texto_semanas(datos["semanas"]) or datos["periodo"])}</i>'),
-              ("Promedio por día", f'{t["promedio_gb"] / rsm.GB_POR_TB:,.2f} TB', f'<i>{t["promedio_gb"]:,.0f} GB</i>'),
-              ("Duración", _dur(t["seg"]).replace(" h", "") + " h" if t["seg"] else "—",
-               f'<i>{_num(t["clips"])} clips de video</i>' if t["clips"] else "")]
-    out.append('<div class="kpis bloque">' + "".join(f'<div class="kpi"><span>{_e(a)}</span><b>{_e(b)}</b>{c}</div>'
-                                                     for a, b, c in cifras) + "</div>")
+        cifras.append(("Frente al periodo anterior", f'{"▲" if dif >= 0 else "▼"} {abs(dif) * 100:.0f} %', f'<i>{_e(ant["texto"])}: {_e(_peso(ant["gb"]))}</i>'))
+    if "clips" in sec:
+        cifras += [("Clips de video", _num(t["clips"]) if t["clips"] else "—", f'<i>{_num(t["clips_audio"])} clips de audio</i>' if t["clips_audio"] else ""),
+                   ("Tarjetas", _num(t["tarjetas"]) if t["tarjetas"] else "—", f'<i>{t["equipos"]} {"equipo" if t["equipos"] == 1 else "equipos"} de grabación</i>')]
+    if "sonido" in sec:
+        gb_a = sum(c["gb"] for c in datos["camaras"] if c["tipo"] == "sonido")
+        cifras.append(("Sonido", _peso(gb_a) if gb_a else "—",
+                       f'<i>{_num(t["clips_audio"])} clips · {_e(_dur(t["seg_audio"])) if t["seg_audio"] else "—"}</i>'))
+    if "extremos" in sec and t["mejor"] and t["dias"] > 1:
+        cifras += [("Día con más material", _peso(t["mejor"]["gb"]), f'<i>{_e(t["mejor"]["dia"])} · {_e(texto_fecha(t["mejor"]["fecha"], False))}</i>'),
+                   ("Día con menos material", _peso(t["menor"]["gb"]), f'<i>{_e(t["menor"]["dia"])} · {_e(texto_fecha(t["menor"]["fecha"], False))}</i>')]
+    if cifras:
+        out.append('<div class="kpis bloque">' + "".join(f'<div class="kpi"><span>{_e(a)}</span><b>{_e(b)}</b>{c}</div>'
+                                                         for a, b, c in cifras) + "</div>")
     # ---- con varias unidades y «Todo»: cuánto puso cada una ----
     pu = [u for u in datos.get("por_unidad") or []]
-    if pu and t["gb"]:
+    if "por_unidad" in sec and pu and t["gb"]:
         filas = "".join(
             f'<div class="pu"><div class="pu-cab"><b>{_e(u["nombre"])}</b><span>{u["tb"]:,.2f} TB · {u["pct"] * 100:.1f} % · '
             f'{u["dias"]} {"día" if u["dias"] == 1 else "días"}</span></div>'
             + (f'<div class="pu-eq">' + " · ".join(f"{_e(k)}: <b>{_e(v)}</b>" for k, v in u["equipo"].items()) + "</div>"
                if u.get("equipo") else "") +
             f'<div class="pu-pista"><div class="pu-barra" style="width:{u["pct"] * 100:.1f}%"></div></div>'
-            f'<div class="pu-cams">' + (" · ".join(f'<i style="background:{_e(c)}"></i>{_e(n)} {g / rsm.GB_POR_TB:,.2f} TB'
-                                                     for n, g, c in u["camaras"]) or "sin material en estos días") + '</div></div>'
+            f'<div class="pu-cams">' + (" · ".join(f'<i style="background:{_e(c)}"></i>{_e(n)} {g_ / rsm.GB_POR_TB:,.2f} TB'
+                                                     for n, g_, c in u["camaras"]) or "sin material en estos días") + '</div></div>'
             for u in pu)
         out.append('<section class="tj bloque"><h2>Por unidad</h2>' + filas + "</section>")
-    # ---- almacenamiento por cámara ----
-    if datos["almacenamiento"] and t["gb"]:
+    # ---- cámaras ----
+    if "alm_camara" in sec and datos["almacenamiento"] and t["gb"]:
         out.append('<section class="tj bloque"><h2>Almacenamiento por cámara</h2>' + _dos(_svg_barras_camaras, datos["almacenamiento"])
                    + f'<div class="pie-tj"><span>Espacio utilizado OCF</span><b>{t["gb"]:,.2f} GB</b></div></section>')
-    if completo:
-        out += _detalle_camaras(datos)
+    det = _detalle_camaras(datos)
+    if "tipos" in sec and datos["tipos"] and len(datos["tipos"]) > 1:
+        out += [x for x in det if "Material por tipo" in x]
+    if "tabla_camaras" in sec:
+        out += [x for x in det if "Cámaras y rollos" in x]
+    if "equipos" in sec:
+        cams = [c for c in datos["camaras"] if c["gb"] > 0 and (c.get("modelo") or c.get("rental"))]
+        if cams:
+            filas = "".join(f'<tr><td><span class="cam"><i style="background:{c["color"]}"></i>{_e(c["nombre"])}</span></td>'
+                            f'<td>{_e(c.get("modelo") or "—")}</td><td>{_e(c.get("rental") or "—")}</td></tr>' for c in cams)
+            out.append('<section class="tj bloque"><h2>Equipo y rental</h2><table class="limpia"><thead><tr><th>Cámara</th><th>Modelo</th>'
+                       f'<th>Rental</th></tr></thead><tbody>{filas}</tbody></table></section>')
     # ---- días o semanas ----
     dias, semanas = datos["dias"], datos["por_semana"]
-    muchos = len(dias) > 14 and len(semanas) > 1
-    if muchos:
+    if "graf_semanas" in sec and len(semanas) > 1:
         prom_sem = t["gb"] / len(semanas)
         out.append('<section class="tj bloque"><h2>TB por semana</h2>'
                    + _dos(_svg_columnas_simple, [(w["nombre"].replace("Semana ", "S"), w["gb"], f'{w["dias"]} días') for w in semanas], prom_sem)
                    + "</section>")
+    if "tabla_semanas" in sec and len(semanas) > 1:
         filas = "".join(f'<tr><td><b>{_e(w["nombre"])}</b><span class="sub ocultar-movil"> · {_e(w["primero"])}{" – " + _e(w["ultimo"]) if w["ultimo"] != w["primero"] else ""}</span></td>'
                         f'<td class="n">{w["dias"]}</td><td class="n">{_e(_peso(w["gb"]))}</td>'
                         f'<td class="n ocultar-movil">{_e(_peso(w["gb"] / w["dias"]))}</td><td class="n">{_e(rsm.hms(w["seg"]))}</td></tr>' for w in semanas)
@@ -1061,27 +1164,25 @@ def _pagina_resumen(datos, logo, completo=False):
                    '<th class="n">Total</th><th class="n ocultar-movil">Promedio/día</th><th class="n">Duración</th></tr></thead>'
                    f'<tbody>{filas}</tbody><tfoot><tr><td>Total</td><td class="n">{t["dias"]}</td><td class="n">{_e(_peso(t["gb"]))}</td>'
                    f'<td class="n ocultar-movil">{_e(_peso(t["promedio_gb"]))}</td><td class="n">{_e(rsm.hms(t["seg"]))}</td></tr></tfoot></table></section>')
+    if "graf_dias" in sec and len(dias) > 1:
+        muchos = len(dias) > 14
         out.append('<section class="tj bloque"><h2>TB por día</h2>'
-                   + _dos(_svg_columnas_simple, [(d["dia"], d["gb"], "") for d in dias], t["promedio_gb"], alto=190, valores=False)
+                   + (_dos(_svg_columnas_simple, [(d["dia"], d["gb"], "") for d in dias], t["promedio_gb"], alto=190, valores=False) if muchos else
+                      _dos(_svg_columnas_simple, [(d["dia"], d["gb"], texto_fecha(d["fecha"], False)) for d in dias], t["promedio_gb"]))
                    + "</section>")
-    elif dias:
-        grafica = _dos(_svg_columnas_simple, [(d["dia"], d["gb"], texto_fecha(d["fecha"], False)) for d in dias], t["promedio_gb"]) \
-            if len(dias) > 1 else ""
+    if "tabla_dias" in sec and dias:
         filas = "".join(f'<tr><td><b>{_e(d["dia"])}</b></td><td class="n">{_e(_peso(d["gb"]))}</td>'
                         f'<td class="n">{_e(rsm.hms(d["seg"]))}</td><td class="n">{_num(d["clips"]) if d["clips"] else "—"}</td></tr>'
                         for d in dias)
-        tabla = ('<table class="limpia"><thead><tr><th>Día</th><th class="n">Total</th><th class="n">Duración</th><th class="n">Clips</th></tr>'
-                 f'</thead><tbody>{filas}</tbody>'
-                 + (f'<tfoot><tr><td>Total</td><td class="n">{_e(_peso(t["gb"]))}</td><td class="n">{_e(rsm.hms(t["seg"]))}</td>'
-                    f'<td class="n">{_num(t["clips"])}</td></tr></tfoot>' if len(dias) > 1 else "") + "</table>")
-        if grafica:
-            out.append('<section class="tj bloque"><h2>TB por día</h2>' + grafica + "</section>")
-        if not completo:                              # en el detallado va la tabla con todos los datos de cada día
-            out.append('<section class="tj bloque"><h2>' + ("Día por día" if len(dias) > 1 else "El día") + "</h2>" + tabla + "</section>")
-    if completo and dias:
+        out.append('<section class="tj bloque"><h2>' + ("Día por día" if len(dias) > 1 else "El día") + '</h2><table class="limpia"><thead><tr>'
+                   '<th>Día</th><th class="n">Total</th><th class="n">Duración</th><th class="n">Clips</th></tr>'
+                   f'</thead><tbody>{filas}</tbody>'
+                   + (f'<tfoot><tr><td>Total</td><td class="n">{_e(_peso(t["gb"]))}</td><td class="n">{_e(rsm.hms(t["seg"]))}</td>'
+                      f'<td class="n">{_num(t["clips"])}</td></tr></tfoot>' if len(dias) > 1 else "") + "</table></section>")
+    if "detalle_dias" in sec and dias:
         out += _detalle_dias(datos)
     # ---- avance del proyecto ----
-    if g["gb"]:
+    if "avance" in sec and g["gb"]:
         anillos = ""
         if g["dias_previstos"]:
             anillos += _svg_anillo(g["dias"] / g["dias_previstos"], f'{g["dias"]}/{g["dias_previstos"]}', "días")
@@ -1090,20 +1191,31 @@ def _pagina_resumen(datos, logo, completo=False):
         lista = [("Total días de rodaje", str(g["dias_previstos"]) if g["dias_previstos"] else "—"), ("Días rodados", str(g["dias"])),
                  ("Promedio por día", _peso(g["promedio_gb"])), ("Espacio utilizado OCF", f'{g["gb"]:,.2f} GB'),
                  ("Espacio aprox. total", f'{g["espacio_previsto_gb"]:,.2f} GB' if g["espacio_previsto_gb"] else "—")]
-        sem = f' · {_e(nombre_semana(g["semana"]))}' if g["semana"] else ""
-        out.append(f'<section class="tj bloque"><h2>Avance del proyecto <small>hasta el {_e(texto_fecha(datos["hasta"]))}{sem}</small></h2>'
+        sem_ = f' · {_e(nombre_semana(g["semana"]))}' if g["semana"] else ""
+        out.append(f'<section class="tj bloque"><h2>Avance del proyecto <small>hasta el {_e(texto_fecha(datos["hasta"]))}{sem_}</small></h2>'
                    f'<div class="avance2"><div class="anillos">{anillos}</div><dl>'
                    + "".join(f"<dt>{_e(a)}</dt><dd>{_e(b)}</dd>" for a, b in lista) + "</dl></div></section>")
-        if completo and len(g["filas"]) > 1:
-            out.append('<section class="tj bloque"><h2>Todo el proyecto, día por día <small>GB de cada día; en verde, los días de este reporte</small></h2>'
-                       + _svg_linea(g["filas"], datos["elegidos"]) + "</section>")
-            out.append('<section class="tj"><h2>Almacenamiento y tiempo rodado <small>todos los días del proyecto</small></h2>'
-                       + _tabla_dias(g["filas"], datos["elegidos"]) + "</section>")
+    if "prevision" in sec and g["gb"] and (g["dias_previstos"] or g["espacio_previsto_gb"]):
+        faltan_d = max(0, (g["dias_previstos"] or 0) - g["dias"]) if g["dias_previstos"] else None
+        al_ritmo = faltan_d * g["promedio_gb"] if faltan_d is not None else None
+        faltan_gb = max(0.0, g["espacio_previsto_gb"] - g["gb"]) if g["espacio_previsto_gb"] else None
+        lista = [("Días por rodar", str(faltan_d) if faltan_d is not None else "—"),
+                 ("Espacio que falta según lo previsto", _peso(faltan_gb) if faltan_gb is not None else "—"),
+                 ("Espacio que falta al ritmo actual", _peso(al_ritmo) if al_ritmo is not None else "—"),
+                 ("Total al terminar (al ritmo actual)", _peso(g["gb"] + al_ritmo) if al_ritmo is not None else "—")]
+        out.append('<section class="tj bloque"><h2>Lo que falta <small>según el promedio de los días rodados</small></h2><div class="avance2"><dl>'
+                   + "".join(f"<dt>{_e(a)}</dt><dd>{_e(b)}</dd>" for a, b in lista) + "</dl></div></section>")
+    if "linea_proyecto" in sec and g["gb"] and len(g["filas"]) > 1:
+        out.append('<section class="tj bloque"><h2>Todo el proyecto, día por día <small>GB de cada día; en verde, los días de este reporte</small></h2>'
+                   + _svg_linea(g["filas"], datos["elegidos"]) + "</section>")
+    if "tabla_proyecto" in sec and g["gb"] and len(g["filas"]) > 1:
+        out.append('<section class="tj"><h2>Almacenamiento y tiempo rodado <small>todos los días del proyecto</small></h2>'
+                   + _tabla_dias(g["filas"], datos["elegidos"]) + "</section>")
     # ---- formato ----
-    if datos["formato"]:
+    if "formato" in sec and datos["formato"]:
         out.append('<div class="formato bloque"><span class="f-t">Formato de grabación</span>'
                    + "".join(f'<span class="chip"><i>{_e(k)}</i> {_e(v)}</span>' for k, v in datos["formato"]) + "</div>")
-    if completo:
+    if "tarjetas" in sec:
         out += _detalle_tarjetas(datos)
     return out
 
@@ -1222,7 +1334,7 @@ def titulo_grande(titulo):
     return t[:1].upper() + t[1:]
 
 
-def a_html(datos, modo="claro", logos=None, barra=True, completo=False):
+def a_html(datos, modo="claro", logos=None, barra=True, completo=False, secciones=None):
     """La página del reporte. `modo`: «claro» u «oscuro» (se puede cambiar después con los botones de arriba, que no salen al imprimir).
     `logos`: {"claro": src, "oscuro": src} (data: URI o ruta); sin logos, se pone el nombre FilmFlow en texto.
     `barra`: los botones de arriba (Claro/Oscuro/Imprimir); se quitan para hacer el PDF.
@@ -1241,7 +1353,7 @@ def a_html(datos, modo="claro", logos=None, barra=True, completo=False):
     else:
         logo = '<b style="font-size:20px;letter-spacing:3px;color:var(--verde)">FILMFLOW</b>'
     out.append('<div class="hoja plano">')
-    out += _pagina_resumen(datos, logo, completo)
+    out += _pagina_resumen(datos, logo, completo, secciones)
     fuente = {"FO-06": "estatus de tarjetas (FO-06)", "FO-07": "estadístico (FO-07)"}.get(datos["fuente"], "tus hojas")
     out.append(f'<footer><span>Estadístico FilmFlow · datos de tu {_e(fuente)} · 1 TB = 1.000 GB</span>'
                f'<span>{_e(datos.get("proyecto_bonito") or datos["proyecto"])}</span></footer></div>')
