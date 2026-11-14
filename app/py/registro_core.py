@@ -543,6 +543,21 @@ def clave_de_patron(p):
     return "cam:" + letra if letra else p
 
 
+# Colores de cámara en el set. No hay una norma escrita mundial, pero el uso del departamento de cámara (cinta de color en cuerpo,
+# cajas, claqueta y tarjetas) es casi universal: A = rojo, B = azul; después lo más común es C = amarillo y D = verde. De la E en
+# adelante cada producción elige: aquí siguen los colores que quedan de la paleta de la app. El sonido, café (como en las hojas).
+COLOR_DE_CAMARA = {"A": "#E24A38", "B": "#70A6DD", "C": "#FFD60A", "D": "#34C759", "E": "#F28C28", "F": "#BF5AF2",
+                   "G": "#FF6FB5", "H": "#5E5CE6"}
+COLOR_DE_SONIDO = "#A2845E"
+
+
+def color_sugerido(tipo, letra="", usados=()):
+    """El color con que se propone un rollo nuevo: el de su letra según la costumbre del set (A rojo, B azul, C amarillo, D verde…),
+    café para el sonido. '' si ese color ya lo usa otro rollo del proyecto o no hay costumbre (la app ofrece entonces el primero libre)."""
+    color = COLOR_DE_SONIDO if tipo == "sonido" else COLOR_DE_CAMARA.get(str(letra or "").upper(), "") if tipo == "camara" else ""
+    return color if color and color.upper() not in {str(u).upper() for u in usados if u} else ""
+
+
 def letra_de_cam(cam):
     """La letra que el PDF pone en la columna «Camera(s)» del BIN: «A_» → A, «C» → C. Varias cámaras o nada → ''."""
     t = str(cam or "").strip().rstrip("_")
@@ -2306,6 +2321,9 @@ def rollo_nuevo_sugerido(cfg, reporte, valores=None):
             base["rental"] = rental
         if modelo:
             base["modelo"] = modelo
+    color = color_sugerido("sonido" if (tipo == "sonido" or es_audio) else tipo, letra, [g.get("color") for g in cfg["grupos"]])
+    if color:
+        base["color"] = color                          # A rojo, B azul, C amarillo, D verde… (se puede cambiar en el formulario)
     idx_cam = [i for i, g in enumerate(cfg["grupos"]) if not grupo_es_sonido(g)]
     return {"nombre_bin": nombre, "cam": cam, "es_audio": es_audio, "base": base, "que": que,
             "ejemplos": ", ".join(parecidos[:3]) + ("…" if len(parecidos) > 3 else ""),
@@ -2664,16 +2682,18 @@ def construir_solicitudes(sheet_id, reporte, filas, hist, cfg, filas_en_hoja, me
     if merges is not None and ref is not None:
         # las columnas que se combinan de arriba abajo (DIA RODAJE, FECHA…) se aprenden del último día con VARIAS filas
         # (si el último día tuvo una sola tarjeta, como HDT D903, no hay nada combinado de dónde aprender)
-        varios = next((b for b in reversed([b for b in bloques if b["material"]]) if len(b["filas"]) > 1), None)
+        # Además, DIA RODAJE y FECHA se combinan SIEMPRE que la hoja las escribe una sola vez por día (todas las hojas lo hacen así:
+        # DSMD, PP, CODT, CONT, Microhistorias…). Antes se copiaba lo del día anterior, y un día que quedó sin combinar (HDT D001,
+        # escrito con una versión vieja) hacía que todos los siguientes quedaran igual: una celda con «D004» y nueve vacías debajo.
         cols_v = set()
-        if varios:
+        for varios in [b for b in reversed([b for b in bloques if b["material"]]) if len(b["filas"]) > 1][:1]:
             r0, r1_ = varios["filas"][0], varios["filas"][-1]
             for m in merges:
                 a, b, c1, c2 = m.get("startRowIndex", 0) + 1, m.get("endRowIndex", 0), m.get("startColumnIndex", 0), m.get("endColumnIndex", 0)
                 if a == r0 and b == r1_ and c2 - c1 == 1:
                     cols_v.add(c1)
-        elif not estilo["et_todas"]:                    # ningún día con varias filas todavía: etiqueta y fecha combinadas (como DSMD)
-            cols_v = {col[k] for k, todas_ in (("dia", True), ("fecha_col", estilo["fecha_todas"])) if k in col and not todas_}
+        if not estilo["et_todas"]:
+            cols_v |= {col[k] for k, todas_ in (("dia", False), ("fecha_col", estilo["fecha_todas"])) if k in col and not todas_}
         if n > 1:
             nuevas += [rango(inicio, final, c, c + 1) for c in sorted(cols_v)]
         if con_total and estilo["total"]["fila_ref"]:

@@ -404,25 +404,25 @@ body.con-reporte{overflow:hidden}
   body.sin-sesion{padding-left:0}
 }
 
-/* ---- Reporte: rueda de semanas del proyecto (se desliza de lado; la elegida queda al centro) ---- */
-.rueda{position:relative;margin:8px -4px 6px;overflow-x:auto;overscroll-behavior-x:contain;scroll-snap-type:x mandatory;scrollbar-width:none;
-  -webkit-mask-image:linear-gradient(90deg,transparent 0,#000 22px,#000 calc(100% - 22px),transparent 100%);
-  mask-image:linear-gradient(90deg,transparent 0,#000 22px,#000 calc(100% - 22px),transparent 100%)}
-.rueda::-webkit-scrollbar{display:none}
-.rueda-pista{display:flex;gap:10px;padding:6px 26px 10px;width:max-content}
-.sem{position:relative;scroll-snap-align:center;flex:none;width:164px;padding:14px 14px 12px;border-radius:18px;cursor:pointer;
-  background:var(--campo);border:1.5px solid var(--separador);display:flex;flex-direction:column;gap:2px;text-align:left;
-  transition:transform .18s ease,background .18s ease,border-color .18s ease;-webkit-tap-highlight-color:transparent}
-.sem:active{transform:scale(.97)}
-.sem-n{font-size:19px;font-weight:800;letter-spacing:-.3px;line-height:1.15;padding-right:26px}
-.sem-f{font-size:13px;font-weight:600;color:var(--texto)}
-.sem-d{font-size:12.5px;color:var(--texto2)}
-.sem-r{font-size:11.5px;color:var(--texto2);margin-top:4px;font-variant-numeric:tabular-nums}
-.sem-mas{position:absolute;top:10px;right:10px;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:15px;font-weight:700;
-  border:1.5px solid var(--separador);color:var(--texto2);background:var(--superficie)}
-.sem.sel{background:color-mix(in srgb,var(--acento-ui) 14%,var(--superficie));border-color:var(--acento-ui)}
-.sem.sel .sem-n{color:var(--acento-texto)}
-.sem.sel .sem-mas{background:var(--acento-ui);border-color:var(--acento-ui);color:#04130A}
+/* ---- Reporte: rueda de semanas «Desde / Hasta», como la del reloj del iPhone ---- */
+.rueda-ios{position:relative;display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:10px 0 4px;padding:0 4px}
+.ri-tit{text-align:center;font-size:12px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--texto2);height:22px}
+.ri-ventana{position:relative;height:200px;overflow:hidden;
+  -webkit-mask-image:linear-gradient(180deg,transparent 0,#000 30%,#000 70%,transparent 100%);
+  mask-image:linear-gradient(180deg,transparent 0,#000 30%,#000 70%,transparent 100%)}
+.ri-banda{position:absolute;left:0;right:0;top:calc(22px + 100px - 20px);height:40px;border-radius:12px;pointer-events:none;
+  background:color-mix(in srgb,var(--texto) 9%,transparent)}
+.ri-lista{height:200px;overflow-y:auto;scroll-snap-type:y mandatory;overscroll-behavior:contain;scrollbar-width:none;
+  -webkit-overflow-scrolling:touch;outline:none;position:relative}
+.ri-lista::-webkit-scrollbar{display:none}
+.ri-esp{height:80px}
+.ri-it{height:40px;scroll-snap-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;
+  line-height:1.1;transform-origin:50% 50%;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none}
+.ri-it b{font-size:19px;font-weight:600;letter-spacing:-.2px}
+.ri-it span{font-size:11.5px;color:var(--texto2)}
+.ri-it.centro b{font-weight:700}
+.ri-it.sel b{color:var(--acento-texto)}
+.ri-detalle{text-align:center;font-size:13.5px;font-weight:600;margin:6px 0 2px}
 .rep-nombre{display:flex;flex-direction:column;gap:2px;margin:2px 0 6px;padding-left:12px;border-left:3px solid var(--acento-ui)}
 .rep-nombre span{font-size:13px;font-weight:700;letter-spacing:.2px;color:var(--texto2)}
 .rep-nombre b{font-size:22px;letter-spacing:-.3px;color:var(--acento-texto)}

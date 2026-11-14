@@ -110,6 +110,30 @@ def tocar_semana(semanas, elegidos, wid, sumar=False):
     return (sel - fs) if fs <= sel else (sel | fs)
 
 
+def desde_hasta(semanas, elegidos):
+    """Para la rueda «Desde / Hasta»: (id de la primera, id de la última) semana del proyecto que están completas en lo elegido.
+    Si no hay ninguna completa, la última semana del proyecto en las dos."""
+    ids = semanas_elegidas(semanas, elegidos)
+    if ids:
+        return ids[0], ids[-1]
+    return (semanas[-1]["id"], semanas[-1]["id"]) if semanas else (None, None)
+
+
+def elegir_desde_hasta(semanas, elegidos, columna, wid):
+    """Girar una de las dos ruedas: `columna` = "desde" o "hasta", `wid` = la semana que quedó en el centro. Si «desde» pasa a
+    «hasta» (o al revés) la otra rueda la sigue. Devuelve las fechas rodadas de todas las semanas de ese tramo."""
+    orden = [w["id"] for w in semanas]
+    if wid not in orden:
+        return set(elegidos)
+    d, h = desde_hasta(semanas, elegidos)
+    i_d, i_h, i = orden.index(d), orden.index(h), orden.index(wid)
+    if columna == "desde":
+        i_d, i_h = i, max(i, i_h)
+    else:
+        i_h, i_d = i, min(i, i_d)
+    return {f for w in semanas[i_d:i_h + 1] for f in w["fechas"]}
+
+
 def semana_de_fecha(semanas, f):
     """La semana del proyecto que tiene la fecha `f` (o la última antes de ella)."""
     previa = None

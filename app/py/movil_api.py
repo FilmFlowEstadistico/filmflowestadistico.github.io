@@ -546,22 +546,28 @@ def html_calendario(r, fechas):
 
 
 def html_rueda(r, semanas):
-    """La rueda de semanas del proyecto: tarjetas que se deslizan de lado. Tocar una = esa semana sola; el círculo de la esquina
-    la agrega o la quita (para sacar el reporte de varias semanas)."""
-    elegidas = set(rpt.semanas_elegidas(semanas, r["elegidos"]))
-    tarjetas = []
-    for w in semanas:
-        sel = w["id"] in elegidas
-        fechas = rpt.texto_periodo_corto(w["desde"], w["hasta"])
-        dias = f'{w["dias"]} {"día" if w["dias"] == 1 else "días"} · {rsm.texto_peso(w["gb"])}'
-        tarjetas.append(
-            f'<div class="sem{" sel" if sel else ""}" role="option" aria-selected="{"true" if sel else "false"}" tabindex="0" '
-            f'{a("reporte_semana", id=w["id"])} title="Elegir solo esta semana">'
-            f'<span class="sem-mas" {a("reporte_semana", id=w["id"], sumar=True)} '
-            f'title="{"Quitar esta semana de las elegidas" if sel else "Agregar esta semana a las elegidas"}">{"✓" if sel else "+"}</span>'
-            f'<span class="sem-n">{esc(w["nombre"])}</span><span class="sem-f">{esc(fechas)}</span>'
-            f'<span class="sem-d">{esc(dias)}</span><span class="sem-r">{esc(w["primero"])}{(" – " + esc(w["ultimo"])) if w["ultimo"] != w["primero"] else ""}</span></div>')
-    return f'<div class="rueda" role="listbox" aria-label="Semanas del proyecto"><div class="rueda-pista">{"".join(tarjetas)}</div></div>'
+    """Rueda de semanas como la del reloj del iPhone: dos ruedas, «Desde» y «Hasta». Se gira con el dedo (o la rueda del mouse) y la
+    semana que queda en la franja del centro es la elegida; tocar una semana de arriba o de abajo la trae al centro."""
+    d, h = rpt.desde_hasta(semanas, r["elegidos"])
+
+    def columna(nombre, titulo, sel_id):
+        items = "".join(
+            f'<div class="ri-it{" sel" if w["id"] == sel_id else ""}" data-id="{esc(w["id"])}" role="option" '
+            f'aria-selected="{"true" if w["id"] == sel_id else "false"}"><b>{esc(w["nombre"])}</b>'
+            f'<span>{esc(rpt.texto_periodo_corto(w["desde"], w["hasta"]))}</span></div>' for w in semanas)
+        return (f'<div class="ri-col"><div class="ri-tit">{titulo}</div><div class="ri-ventana">'
+                f'<div class="ri-lista" tabindex="0" data-rueda="{nombre}" role="listbox" aria-label="{titulo}" '
+                f'title="Gira para elegir la semana ({titulo.lower()})"><div class="ri-esp"></div>{items}<div class="ri-esp"></div></div>'
+                f'</div></div>')
+    i_d = [w["id"] for w in semanas].index(d)
+    i_h = [w["id"] for w in semanas].index(h)
+    tramo = semanas[i_d:i_h + 1]
+    dias = sum(w["dias"] for w in tramo)
+    gb = sum(w["gb"] for w in tramo)
+    detalle = (f'{rpt.texto_periodo(tramo[0]["desde"], tramo[-1]["hasta"])} · {dias} {"día" if dias == 1 else "días"} · '
+               f'{rsm.texto_peso(gb)}')
+    return (f'<div class="rueda-ios"><div class="ri-banda" aria-hidden="true"></div>{columna("desde", "Desde", d)}'
+            f'{columna("hasta", "Hasta", h)}</div><p class="ri-detalle">{esc(detalle)}</p>')
 
 
 def html_reporte(m):
@@ -584,8 +590,8 @@ def html_reporte(m):
     semanas = rpt.semanas_del_proyecto(m, r["unidad"])
     if r["tipo"] == "semana" and semanas:
         cuerpo += html_rueda(r, semanas)
-        cuerpo += ('<p class="nota">Desliza para ver las semanas del proyecto. Toca una para elegirla; toca el <b>+</b> de otra para '
-                   'sumarla (por ejemplo, Semanas 2 y 3).</p>')
+        cuerpo += ('<p class="nota">Gira las ruedas como en el reloj del iPhone: la semana de la franja del centro es la elegida. '
+                   'Para una sola semana, deja las dos en la misma.</p>')
     else:
         cuerpo += html_calendario(r, fechas)
         ayuda = {"dia": "Toca un día.", "semana": "Toca cualquier día: se elige su semana (lunes a domingo).",
@@ -649,6 +655,15 @@ def _con_reporte(f):
         return _repintar_reporte()
     f(E["reporte"], rpt.rodados(E["resumen"], E["reporte"]["unidad"]))
     return _repintar_reporte()
+
+
+def reporte_semanas(p):
+    """Se giró una de las ruedas «Desde» / «Hasta»."""
+    def f(r, _fechas):
+        semanas = rpt.semanas_del_proyecto(E["resumen"], r["unidad"])
+        e = rpt.elegir_desde_hasta(semanas, r["elegidos"], p.get("columna"), p.get("id"))
+        r.update(elegidos=e, tipo="semana", **({"mes": (max(e).year, max(e).month)} if e else {}))
+    return _con_reporte(f)
 
 
 def reporte_semana(p):
@@ -2580,7 +2595,7 @@ ACCIONES = {k: v for k, v in globals().items() if callable(v) and not k.startswi
     "mover_rollo", "elegir_proyecto", "renombrar_pedir", "renombrar_ok", "nuevo_pedir", "nuevo_ok", "nuevo_conectar", "eliminar_proyecto", "eliminar_ok",
     "correo_pdf", "correo_usar_registro", "correo_prefijo", "cuenta", "sincronizar", "sync_enlace", "nuevo_dia",
     "reporte_abrir", "reporte_cerrar", "reporte_tipo", "reporte_tocar", "reporte_mes", "reporte_rango", "reporte_unidad", "reporte_modo", "reporte_contenido",
-    "reporte_crear", "reporte_semana", "equipo_agregar", "equipo_cancelar", "equipo_guardar", "equipo_dar_acceso", "equipo_quitar", "equipo_quitar_ok", "unirse", "unirse_pedir"}}
+    "reporte_crear", "reporte_semana", "reporte_semanas", "equipo_agregar", "equipo_cancelar", "equipo_guardar", "equipo_dar_acceso", "equipo_quitar", "equipo_quitar_ok", "unirse", "unirse_pedir"}}
 
 
 def _firma_config():

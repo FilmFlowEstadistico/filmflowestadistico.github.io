@@ -462,14 +462,54 @@ function dibujarGrafico(g) {
 function prepararGraficos(raiz) {
   (raiz || document).querySelectorAll(".grafico[data-g]").forEach((g) => { dibujarGrafico(g); if (vigiaGrafico) vigiaGrafico.observe(g); });
 }
-function centrarRueda(raiz) {             // la semana elegida (la última) queda en el centro de la rueda, sin mover la página
-  (raiz || document).querySelectorAll(".rueda").forEach((r) => {
-    const sel = r.querySelectorAll(".sem.sel"), el = sel[sel.length - 1]; if (!el) return;
-    r.scrollLeft = el.offsetLeft - (r.clientWidth - el.offsetWidth) / 2;
+// ---- Rueda de semanas (como la del reloj del iPhone): cada .ri-lista se desliza con «scroll-snap»; al soltar, la semana que quedó
+// en la franja del centro se manda a Python (acción «reporte_semanas»). Mientras gira, cada renglón se inclina y se apaga según lo
+// lejos que esté del centro (efecto de tambor). Tocar un renglón lo trae al centro.
+const ALTO_RUEDA = 40;
+function pintarTambor(lista) {
+  const centro = lista.scrollTop + lista.clientHeight / 2;
+  const its = lista.querySelectorAll(".ri-it");
+  let cerca = null, mejor = 1e9;
+  its.forEach((it) => {
+    const d = (it.offsetTop + it.offsetHeight / 2 - centro) / ALTO_RUEDA, a = Math.min(Math.abs(d), 3);
+    it.style.transform = `perspective(400px) rotateX(${Math.max(-60, Math.min(60, -d * 18))}deg) scale(${1 - a * 0.07})`;
+    it.style.opacity = String(Math.max(0.15, 1 - a * 0.3));
+    if (Math.abs(d) < mejor) { mejor = Math.abs(d); cerca = it; }
+  });
+  its.forEach((it) => it.classList.toggle("centro", it === cerca));
+  return cerca;
+}
+function prepararRuedas(raiz) {
+  (raiz || document).querySelectorAll(".ri-lista").forEach((lista) => {
+    const sel = lista.querySelector(".ri-it.sel");
+    if (sel) lista.scrollTop = sel.offsetTop + sel.offsetHeight / 2 - lista.clientHeight / 2;
+    pintarTambor(lista);
+    if (lista.dataset.listo) return;
+    lista.dataset.listo = "1";
+    let quieto = null, pintando = false;
+    const soltar = async () => {
+      const it = pintarTambor(lista);
+      if (!it || it.classList.contains("sel")) return;
+      lista.querySelectorAll(".ri-it.sel").forEach((x) => x.classList.remove("sel")); it.classList.add("sel");
+      if (navigator.vibrate) { try { navigator.vibrate(8); } catch (e) {} }
+      mostrar(await api("reporte_semanas", { columna: lista.dataset.rueda, id: it.dataset.id }));
+    };
+    lista.addEventListener("scroll", () => {
+      if (!pintando) { pintando = true; requestAnimationFrame(() => { pintando = false; pintarTambor(lista); }); }
+      clearTimeout(quieto); quieto = setTimeout(soltar, 160);
+    }, { passive: true });
+    lista.addEventListener("click", (e) => {
+      const it = e.target.closest(".ri-it"); if (!it) return;
+      lista.scrollTo({ top: it.offsetTop + it.offsetHeight / 2 - lista.clientHeight / 2, behavior: "smooth" });
+    });
+    lista.addEventListener("keydown", (e) => {
+      if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+      e.preventDefault(); lista.scrollBy({ top: e.key === "ArrowDown" ? ALTO_RUEDA : -ALTO_RUEDA, behavior: "smooth" });
+    });
   });
 }
 function posprocesar() {
-  prepararGraficos(vista); centrarRueda(vista);
+  prepararGraficos(vista); prepararRuedas(vista);
   vista.querySelectorAll("form").forEach(alternarTipo);
   $("#btn-actualizar").style.display = actual === "resumen" ? "" : "none";
   if (actual === "app") { pintarDescanso(); pintarVersion(); }
