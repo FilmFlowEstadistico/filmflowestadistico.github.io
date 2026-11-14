@@ -508,6 +508,8 @@ def armar(modelo, elegidos, unidad_id=None, paleta=None, ahora=None, modo=None):
             "proyecto_bonito": proyecto_bonito(modelo.get("proyecto") or "")}
     datos["titulo"] = titulo_de(datos, sorted({d["fecha"] for d in serie if d.get("fecha")}))
     datos["titulo_grande"] = titulo_grande(datos["titulo"])
+    datos["proyecto_sugerido"] = datos["proyecto_bonito"] or datos["proyecto"]
+    datos["titulo_sugerido"] = datos["titulo_grande"]
     datos["unidad_id"] = vista["id"] if vista else None
     datos["por_unidad"] = por_unidad(modelo, sel, colores) if vista is None else []
     if datos["por_unidad"]:                            # cada unidad tiene su equipo: arriba solo lo que comparten, lo demás en su fila
@@ -1331,6 +1333,32 @@ def texto_semanas(semanas):
 
 
 _MINUSCULAS = {"de", "del", "la", "el", "los", "las", "y", "en", "a", "con", "por", "para", "un", "una", "e", "o"}
+
+
+def clave_nombre(r):
+    """A qué días (y unidad) pertenece un título escrito a mano: si cambias los días, vuelve el sugerido."""
+    return ",".join(sorted(f.isoformat() for f in (r.get("elegidos") or []))) + "|" + str(r.get("unidad") or "")
+
+
+def nombre_a_mano(r, proyecto=None, titulo=None):
+    """Guarda en `r` el nombre escrito a mano (vacío = el sugerido). El proyecto se queda; el título vale para esos días."""
+    if proyecto is not None:
+        r["nombre_proyecto"] = proyecto.strip()[:120] or None
+    if titulo is not None:
+        t = titulo.strip()[:120]
+        r["nombre_titulo"] = {"texto": t, "para": clave_nombre(r)} if t else None
+
+
+def poner_nombre(datos, r):
+    """Cambia en `datos` el nombre del proyecto y el título por los que la persona escribió (si escribió algo)."""
+    if not datos or not r:
+        return datos
+    if r.get("nombre_proyecto"):
+        datos["proyecto_bonito"] = r["nombre_proyecto"]
+    t = r.get("nombre_titulo")
+    if t and t.get("texto") and t.get("para") == clave_nombre(r):
+        datos["titulo_grande"] = t["texto"]
+    return datos
 
 
 def proyecto_bonito(nombre):

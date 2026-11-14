@@ -607,18 +607,6 @@ GRIP = ('<span class="grip" role="button" aria-label="Mantén y arrastra para ca
         '<circle cx="15" cy="12" r="1.7"/><circle cx="9" cy="18" r="1.7"/><circle cx="15" cy="18" r="1.7"/></svg></span>')
 
 
-def html_orden(r, datos):
-    """El orden de lo que lleva el PDF: las secciones prendidas, cada una con su asa para arrastrarla (como los rollos en Ajustes).
-    Van todas las que tienen datos; las apagadas, escondidas (aparecen al prenderlas)."""
-    sec = r.get("secciones") or rpt.secciones_de("resumen")
-    no = rpt.secciones_disponibles(datos) if datos else {}
-    nombres = {x[0]: x[2] for x in rpt.SECCIONES}
-    items = "".join(f'<div class="ord-it" data-sec="{sid}"{"" if sid in sec else " hidden"}><span class="ord-t">{esc(nombres[sid])}</span>{GRIP}</div>'
-                    for sid in rpt.orden_de(r.get("orden")) if sid not in no)
-    return ('<p class="nota">Arrastra el asa ⋮⋮ para cambiar el orden; la vista previa se acomoda sola.</p>'
-            f'<div class="ord-lista">{items}</div>')
-
-
 def html_reporte(m):
     r = E["reporte"]
     fechas = rpt.rodados(m, r["unidad"])
@@ -645,13 +633,20 @@ def html_reporte(m):
     res = (f'<span class="chip info">{esc(datos["unidad"])}</span>' if datos and datos.get("unidad") else "")
     if datos and datos["dias"]:
         t = datos["totales"]
-        res += (f'<div class="rep-nombre"><span>{esc(datos["proyecto_bonito"] or datos["proyecto"])}</span>'
-                f'<b>{esc(datos["titulo_grande"])}</b></div>'
+        rpt.poner_nombre(datos, r)
+        res += ('<div class="rep-nombre"><span class="nota">Así se llamará el reporte · toca para cambiarlo</span>'
+                f'<input class="rep-in" data-nombre="proyecto" value="{esc(datos["proyecto_bonito"] or datos["proyecto"])}" '
+                f'placeholder="{esc(datos["proyecto_sugerido"])}" maxlength="120" autocomplete="off" spellcheck="false" '
+                'title="Nombre del proyecto en la portada del reporte. Bórralo para volver al sugerido." aria-label="Nombre del proyecto en el reporte">'
+                f'<input class="rep-in grande" data-nombre="titulo" value="{esc(datos["titulo_grande"])}" '
+                f'placeholder="{esc(datos["titulo_sugerido"])}" maxlength="120" autocomplete="off" '
+                'title="Título del reporte (sale grande en verde). Bórralo para volver al sugerido." aria-label="Título del reporte"></div>'
                 f'<p class="sub">{esc(datos["periodo"])} · {t["dias"]} día{"s" if t["dias"] != 1 else ""} · {esc(rsm.texto_peso(t["gb"]))}</p>')
     else:
         res += H.aviso("aviso", "No hay material registrado en los días elegidos." if r["elegidos"] else "Elige los días en el calendario.")
     apariencia = '<p class="nota">Apariencia del PDF</p>' + H.segmentado([("claro", "Claro"), ("oscuro", "Oscuro")], r["modo"], "reporte_modo_rapido")
-    vista = ('<div class="rep-vista" aria-label="Vista previa del PDF"><iframe title="Vista previa del reporte" scrolling="no"></iframe></div>'
+    vista = ('<p class="nota">Arrastra los puntitos ⋮⋮ al lado de cada parte para cambiar su lugar en el PDF.</p>'
+             '<div class="rep-vista" aria-label="Vista previa del PDF"><iframe title="Vista previa del reporte" scrolling="no"></iframe></div>'
              if datos and datos["dias"] else H.vacia("Sin vista previa", "Elige días con material para ver cómo queda el PDF."))
     # En el teléfono la pestaña va en tres pasos (uno a la vez, para no hacer una página larguísima); en pantalla ancha se ve todo junto
     pasos = ('<div class="rep-pasos segmentado" role="tablist">'
@@ -659,8 +654,7 @@ def html_reporte(m):
              '<button class="seg" data-js="rep_paso" data-v="contenido" role="tab" title="Elegir qué lleva el PDF y si es claro u oscuro">2 · Contenido</button>'
              '<button class="seg" data-js="rep_paso" data-v="vista" role="tab" title="Ver cómo queda el PDF">3 · Vista previa</button></div>')
     izq = (f'<div data-paso-de="dias">{H.tarjeta(cuerpo, "¿Qué días?")}</div>'
-           f'<div data-paso-de="contenido">{H.tarjeta(apariencia + html_secciones(r, datos), "¿Qué lleva el PDF?")}'
-           f'{H.tarjeta(html_orden(r, datos), "Orden en el PDF") if datos and datos["dias"] else ""}</div>')
+           f'<div data-paso-de="contenido">{H.tarjeta(apariencia + html_secciones(r, datos), "¿Qué lleva el PDF?")}</div>')
     der = f'<div data-paso-de="vista">{H.tarjeta(vista, "Vista previa del PDF")}</div>'
     return (f'<div id="reporte-panel"></div><div class="rep-cab">{res}</div>{pasos}'
             f'<div class="rep-grid" data-paso="dias"><div class="rep-col">{izq}</div><div class="rep-col rep-col-vista">{der}</div></div>')
@@ -671,7 +665,7 @@ def _datos_reporte(paleta=None):
     if not r or m is None or not r["elegidos"]:
         return None
     datos = rpt.armar(m, r["elegidos"], r["unidad"], paleta=paleta, modo=r["tipo"])
-    return datos if datos["dias"] else None
+    return rpt.poner_nombre(datos, r) if datos["dias"] else None
 
 
 def _repintar_reporte(extra=None):
@@ -800,6 +794,14 @@ def reporte_orden(p):
     return {"guardado": True}
 
 
+def reporte_nombre(p):
+    """El nombre del reporte escrito a mano (la vista previa ya lo muestra): aquí solo se guarda. Vacío = el sugerido."""
+    r = E["reporte"]
+    if r:
+        rpt.nombre_a_mano(r, proyecto=p.get("proyecto"), titulo=p.get("titulo"))
+    return {"guardado": True}
+
+
 def reporte_modo_rapido(p):
     """Claro u oscuro: la vista previa cambió al instante; aquí solo se guarda."""
     r = E["reporte"]
@@ -812,7 +814,7 @@ def reporte_crear(p):
     r, m = E["reporte"], E["resumen"]
     if not r or m is None or not r["elegidos"]:
         return _repintar_reporte()
-    datos = rpt.armar(m, r["elegidos"], r["unidad"], paleta=tema.PALETA_ROLLOS, modo=r["tipo"])
+    datos = rpt.poner_nombre(rpt.armar(m, r["elegidos"], r["unidad"], paleta=tema.PALETA_ROLLOS, modo=r["tipo"]), r)
     if not datos["dias"]:
         return _repintar_reporte()
     # el navegador cambia LOGO_CLARO / LOGO_OSCURO por los logos de verdad (así el archivo se puede mandar solo)
@@ -2737,7 +2739,7 @@ ACCIONES = {k: v for k, v in globals().items() if callable(v) and not k.startswi
     "mover_rollo", "elegir_proyecto", "renombrar_pedir", "renombrar_ok", "nuevo_pedir", "nuevo_ok", "nuevo_conectar", "eliminar_proyecto", "eliminar_ok",
     "correo_pdf", "correo_usar_registro", "correo_prefijo", "cuenta", "sincronizar", "sync_enlace", "nuevo_dia",
     "reporte_abrir", "reporte_cerrar", "reporte_tipo", "reporte_tocar", "reporte_mes", "reporte_rango", "reporte_unidad", "reporte_modo", "reporte_contenido",
-    "reporte_crear", "reporte_semana", "reporte_semanas", "reporte_preset", "reporte_seccion", "reporte_orden", "reporte_modo_rapido", "color_en_hojas_ok", "equipo_agregar", "equipo_cancelar", "equipo_guardar", "equipo_dar_acceso", "equipo_quitar", "equipo_quitar_ok", "unirse", "unirse_pedir"}}
+    "reporte_crear", "reporte_semana", "reporte_semanas", "reporte_preset", "reporte_seccion", "reporte_orden", "reporte_modo_rapido", "reporte_nombre", "color_en_hojas_ok", "equipo_agregar", "equipo_cancelar", "equipo_guardar", "equipo_dar_acceso", "equipo_quitar", "equipo_quitar_ok", "unirse", "unirse_pedir"}}
 
 
 def _firma_config():
