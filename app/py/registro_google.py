@@ -457,6 +457,103 @@ def leer_hoja(servicio, sid, pestana):
     return rc.tabla_de_hoja(r.get("values", []))
 
 
+def colores_de_columna(servicio, sid, pestana, columna, desde, hasta):
+    """{fila: '#RRGGBB'} del color de fondo de una columna entre dos filas, en UNA sola consulta (solo lectura)."""
+    letra = _letra_de_columna(columna)
+    try:
+        r = servicio.spreadsheets().get(
+            spreadsheetId=sid, ranges=[f"{_nombre_pestana(pestana)}!{letra}{desde}:{letra}{hasta}"], includeGridData=True,
+            fields="sheets.data.rowData.values.effectiveFormat.backgroundColor").execute()
+    except Exception as e:
+        raise ErrorRegistro(_traducir(e))
+    salida = {}
+    filas = ((((r.get("sheets") or [{}])[0].get("data") or [{}])[0]).get("rowData") or [])
+    for k, fila in enumerate(filas):
+        try:
+            salida[desde + k] = _hex(fila["values"][0]["effectiveFormat"]["backgroundColor"])
+        except (KeyError, IndexError, TypeError):
+            pass
+    return salida
+
+
+def plan_color_rollo(servicio, cfg, gid, color):
+    """Qué filas de TODOS los estatus conectados (cada pestaña con formato de estatus) son del rollo `gid` y todavía no tienen `color`.
+    Solo lectura. Devuelve [{sid, titulo, pestana, sheet_id, filas, cols}] (solo las pestañas con algo que pintar)."""
+    import registro_core as rc
+    color = str(color or "").upper()
+    salida = []
+    for e in rc.estatus(cfg):
+        try:                                           # una sola consulta por archivo: su nombre y sus pestañas con su id
+            sid = id_de_enlace(e["enlace"])
+            r = servicio.spreadsheets().get(spreadsheetId=sid, fields="properties.title,sheets.properties(sheetId,title,sheetType)").execute()
+        except Exception:
+            continue
+        ids = {h["properties"]["title"]: h["properties"]["sheetId"] for h in r.get("sheets", [])
+               if h["properties"].get("sheetType", "GRID") == "GRID"}
+        info = {"titulo": r.get("properties", {}).get("title", e.get("titulo", ""))}
+        for pestana in ids:
+            try:
+                valores = leer_hoja(servicio, sid, pestana)
+            except ErrorRegistro:
+                continue
+            fmt = getattr(valores, "fmt", None)
+            if not fmt or fmt["col"].get("cam") is None or not len(valores):
+                continue
+            filas = rc.filas_de_rollo(valores, cfg, gid)
+            if not filas:
+                continue
+            actuales = colores_de_columna(servicio, sid, pestana, fmt["col"]["cam"], min(filas), max(filas))
+            pintar = [f for f in filas if actuales.get(f, "").upper() != color]
+            if pintar:
+                cols = [fmt["col"][k] for k in ("cam", "modelo", "mag") if fmt["col"].get(k) is not None]
+                salida.append({"sid": sid, "titulo": info["titulo"], "pestana": pestana, "sheet_id": ids.get(pestana),
+                               "filas": pintar, "cols": cols, "col_cam": fmt["col"]["cam"]})
+    return salida
+
+
+def aplicar_color_rollo(servicio, plan, color):
+    """Pinta del `color` las celdas CAM, Modelo y # Mag de las filas del plan (lo que ya hay escrito no se toca: solo el fondo) y
+    lee de vuelta para comprobar. Devuelve (filas pintadas, filas que no quedaron con el color)."""
+    import registro_core as rc
+    rgb = rc._rgb(color)
+    hechas, malas = 0, []
+    for p in plan:
+        reqs = []
+        filas = sorted(p["filas"])
+        tramos, ini = [], filas[0]
+        for a, b in zip(filas, filas[1:] + [None]):
+            if b != a + 1:
+                tramos.append((ini, a))
+                ini = b
+        for r1, r2 in tramos:
+            for c in p["cols"]:
+                reqs.append({"repeatCell": {"range": {"sheetId": p["sheet_id"], "startRowIndex": r1 - 1, "endRowIndex": r2,
+                                                      "startColumnIndex": c, "endColumnIndex": c + 1},
+                                            "cell": {"userEnteredFormat": {"backgroundColor": rgb, "backgroundColorStyle": {"rgbColor": rgb}}},
+                                            "fields": "userEnteredFormat.backgroundColor,userEnteredFormat.backgroundColorStyle"}})
+        try:
+            servicio.spreadsheets().batchUpdate(spreadsheetId=p["sid"], body={"requests": reqs}).execute()
+        except Exception as e:
+            raise ErrorRegistro(_traducir(e))
+        vuelta = colores_de_columna(servicio, p["sid"], p["pestana"], p["col_cam"], filas[0], filas[-1])
+        for f in filas:
+            if vuelta.get(f, "").upper() == str(color).upper():
+                hechas += 1
+            else:
+                malas.append((p["titulo"], p["pestana"], f))
+    return hechas, malas
+
+
+def texto_plan_color(plan):
+    """««FF-GS-FO-06 … HDT» (pestaña HDT): 3 tarjetas (filas 33–35)» para la pregunta de antes de pintar."""
+    partes = []
+    for p in plan:
+        f = sorted(p["filas"])
+        donde = f"fila {f[0]}" if len(f) == 1 else (f"filas {f[0]}–{f[-1]}" if f[-1] - f[0] + 1 == len(f) else f"{len(f)} filas entre la {f[0]} y la {f[-1]}")
+        partes.append(f"«{p['titulo']}» (pestaña {p['pestana']}): {len(f)} {'tarjeta' if len(f) == 1 else 'tarjetas'} ({donde})")
+    return "\n".join(partes)
+
+
 def leer_pestanas_valores(servicio, sid, pestanas):
     """Varias pestañas con sus VALORES reales en UNA sola consulta: {pestaña: filas}. Solo lectura."""
     pestanas = list(pestanas)

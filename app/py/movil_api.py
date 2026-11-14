@@ -2256,11 +2256,15 @@ def guardar_rollo(p):
         f["base"] = {**f["base"], **{k: p.get(k, "") for k in ("tipo", "letra", "otro", "nombre", "rental", "modelo")}}
         return {"ir": "ajustes", "recargar": True}
     cfg = rc.cargar_config()
+    cambio_color = None
     try:
         if f["datos"].get("id"):
             i = next(j for j, g in enumerate(cfg["grupos"]) if g["id"] == f["datos"]["id"])
             valor.pop("posicion", None)
+            antes_color = (cfg["grupos"][i].get("color") or "").upper()
             cfg["grupos"][i].update(valor)
+            if (cfg["grupos"][i].get("color") or "") and cfg["grupos"][i]["color"].upper() != antes_color:
+                cambio_color = cfg["grupos"][i]["id"]
         else:
             lugar = valor.pop("posicion", len(cfg["grupos"]))
             g = rc.agregar_grupo(cfg, **valor)
@@ -2272,7 +2276,44 @@ def guardar_rollo(p):
         return {"ir": "ajustes", "recargar": True}
     E["formulario"] = None
     E.update(resumen=None, cache_firma={})
+    if cambio_color and rc.estatus(cfg):
+        return _ofrecer_color_en_hojas(cfg, cambio_color)
     return {"ir": "ajustes", "recargar": True}
+
+
+def _ofrecer_color_en_hojas(cfg, gid):
+    """El color de un rollo cambió: se buscan sus tarjetas en TODOS los estatus y, si alguna tiene otro color, se pregunta antes de pintar."""
+    g = next(x for x in cfg["grupos"] if x["id"] == gid)
+    try:
+        plan = rg.plan_color_rollo(rg.conectar(), cfg, gid, g["color"])
+    except ErrorRegistro as e:
+        return _con_mensaje(pagina_ajustes(), f"Guardé el color, pero no pude revisar tus hojas: {e}", "aviso")
+    resp = pagina_ajustes()
+    if not plan:
+        return resp
+    E["plan_color"] = {"gid": gid, "color": g["color"], "plan": plan}
+    n = sum(len(x["filas"]) for x in plan)
+    resp["confirmar"] = {"titulo": "Cambiar el color en tus hojas",
+                         "texto": f"Cambiaste el color de «{g['nombre']}».\n\nEn tus hojas hay {n} {'tarjeta' if n == 1 else 'tarjetas'} de ese "
+                                  f"rollo con otro color:\n{rg.texto_plan_color(plan)}\n\n¿Las pinto del color nuevo? Solo cambia el fondo de "
+                                  "CAM, Modelo y # Mag; ningún dato se toca.",
+                         "accion": "color_en_hojas_ok", "boton": "Pintar"}
+    return resp
+
+
+def color_en_hojas_ok(p):
+    pc = E.pop("plan_color", None)
+    if not pc:
+        return pagina_ajustes()
+    try:
+        hechas, malas = rg.aplicar_color_rollo(rg.conectar(), pc["plan"], pc["color"])
+    except ErrorRegistro as e:
+        return _con_mensaje(pagina_ajustes(), f"No pude cambiar el color: {e}", "error")
+    E.update(resumen=None, cache_firma={})
+    if malas:
+        return _con_mensaje(pagina_ajustes(), f"Pinté {hechas} tarjetas, pero {len(malas)} no quedaron con el color nuevo (por ejemplo la "
+                                              f"fila {malas[0][2]} de «{malas[0][1]}»). Revísalas en la hoja.", "aviso")
+    return _con_mensaje(pagina_ajustes(), f"Listo: {hechas} tarjetas quedaron del color nuevo en tus hojas (lo comprobé leyendo de vuelta).", "ok")
 
 
 def cancelar_formulario(p):          # (reemplaza la versión de arriba: sirve para Registrar y para Ajustes)
@@ -2595,7 +2636,7 @@ ACCIONES = {k: v for k, v in globals().items() if callable(v) and not k.startswi
     "mover_rollo", "elegir_proyecto", "renombrar_pedir", "renombrar_ok", "nuevo_pedir", "nuevo_ok", "nuevo_conectar", "eliminar_proyecto", "eliminar_ok",
     "correo_pdf", "correo_usar_registro", "correo_prefijo", "cuenta", "sincronizar", "sync_enlace", "nuevo_dia",
     "reporte_abrir", "reporte_cerrar", "reporte_tipo", "reporte_tocar", "reporte_mes", "reporte_rango", "reporte_unidad", "reporte_modo", "reporte_contenido",
-    "reporte_crear", "reporte_semana", "reporte_semanas", "equipo_agregar", "equipo_cancelar", "equipo_guardar", "equipo_dar_acceso", "equipo_quitar", "equipo_quitar_ok", "unirse", "unirse_pedir"}}
+    "reporte_crear", "reporte_semana", "reporte_semanas", "color_en_hojas_ok", "equipo_agregar", "equipo_cancelar", "equipo_guardar", "equipo_dar_acceso", "equipo_quitar", "equipo_quitar_ok", "unirse", "unirse_pedir"}}
 
 
 def _firma_config():

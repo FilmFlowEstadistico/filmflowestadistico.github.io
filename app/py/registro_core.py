@@ -2932,6 +2932,28 @@ def quitar_estadistico(cfg, indice=0):
 
 
 # ---- Varios archivos de estatus de tarjetas (FO-06): el principal es donde se registra; los demás solo se leen ----
+def filas_de_rollo(valores, cfg, gid):
+    """Las filas (número en la hoja) del estatus cuyas tarjetas son del rollo `gid`, reconocidas igual que en el Resumen (por su nombre
+    y, si es sonido, por la grabadora). Sirve para pintarlas cuando se cambia el color del rollo en la app."""
+    fmt = getattr(valores, "fmt", None) or FORMATO_DSMD
+    con_modelo = fmt["col"].get("modelo") is not None
+    salida = []
+    for idx, fila in enumerate(valores):
+        try:
+            nombre = _celda(list(fila), fmt, "cam")
+        except Exception:
+            continue
+        if not isinstance(nombre, str) or not nombre.strip() or str(nombre).startswith("="):
+            continue
+        nombre = nombre.strip()
+        modelo = _celda(list(fila), fmt, "modelo") if con_modelo else ""
+        audio = es_modelo_de_audio(modelo) or es_nombre_de_sonido(nombre)
+        g = (grupo_de_audio(nombre, cfg, modelo) or None) if audio else grupo_de(nombre, cfg, audio=False if modelo else None)
+        if g is not None and g.get("id") == gid:
+            salida.append(fmt["primera"] + idx)
+    return salida
+
+
 def estatus(cfg):
     """Los archivos de estatus conectados, el principal primero (cada uno: enlace, titulo, pestana). Vacío si no hay ninguno."""
     h = (cfg or {}).get("hoja") or {}
