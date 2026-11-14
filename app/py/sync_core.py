@@ -274,8 +274,9 @@ def _ficha_doc(nombre, p, de, ahora):
             "p": {k: copy.deepcopy(v) for k, v in p.items() if k not in _NO_SE_COMPARTE and not str(k).startswith("_")}}
 
 
-def escribir_ficha(http, nombre, p, de="", ahora=None):
-    """Crea (si no existe) y llena la ficha del proyecto. Devuelve su id (queda en p["ficha"])."""
+def escribir_ficha(http, nombre, p, de="", ahora=None, crear=True):
+    """Crea (si no existe) y llena la ficha del proyecto. Devuelve su id (queda en p["ficha"]). Con `crear=False` (un invitado que
+    devuelve sus cambios) nunca crea otra: si la ficha no existe o no la puede editar, lanza el error."""
     fid = p.get("ficha")
     doc = _ficha_doc(nombre, p, de, ahora or time.time())
     if not fid:
@@ -290,7 +291,7 @@ def escribir_ficha(http, nombre, p, de="", ahora=None):
         _llamar(http, "POST", f"{SHEETS}/{fid}/values:batchUpdate",
                 {"valueInputOption": "RAW", "data": [{"range": f"{PESTANA}!A1:A{len(filas)}", "values": filas}]}, que="guardar la ficha del proyecto")
     except ErrorSync as e:
-        if e.codigo != 404 or not p.get("ficha"):
+        if e.codigo != 404 or not p.get("ficha") or not crear:
             raise
         p.pop("ficha", None)                                   # la borraron en Drive: se crea otra
         return escribir_ficha(http, nombre, p, de, ahora)
@@ -360,7 +361,9 @@ def dar_acceso(http, nombre, p, personas, de="", ahora=None):
                              f"Google Workspace puede permitirlo; mientras tanto se puede dar acceso a un correo @{dom}.")
         if sin_hojas < len(hojas):                             # la ficha solo si tiene acceso al menos a una hoja (si no, vería
             try:                                               # un proyecto al que no puede entrar)
-                _dar_permiso(http, fid, x["correo"], "reader", "la ficha del proyecto",
+                # quien puede EDITAR también puede devolver sus cambios del proyecto (rollos, colores, hojas) a la ficha: así el
+                # proyecto queda igual para todo el equipo; quien solo ve, la lee
+                _dar_permiso(http, fid, x["correo"], rol, "la ficha del proyecto",
                              mensaje=f"Te agregaron al proyecto «{nombre}» en Estadístico FilmFlow. Abre este enlace en el celular o en el "
                                      f"computador para tenerlo en la app (entra con este mismo correo): {enlace_invitacion(fid)}")
             except FaltaPermisoCompartir:
@@ -399,7 +402,51 @@ def quitar_acceso(http, p, correo):
         [("ok", f"{correo} ya no tiene acceso a las hojas de este proyecto.")]
 
 
-RELEER_FICHAS = 600        # una ficha que Drive no lista se vuelve a leer cada 10 minutos como mucho (antes: en cada sincronización)
+RELEER_FICHAS = 60         # una ficha que Drive no lista se vuelve a leer cada minuto como mucho (13/11: con 10 minutos los cambios del
+                           # encargado tardaban demasiado en llegar al equipo; leerla es UNA consulta pequeña)
+
+
+def _mezclar(base, mio, suyo):
+    """Mezcla de tres vías del proyecto compartido: `base` = la ficha como estaba la última vez que este aparato la vio, `mio` = lo de
+    este aparato, `suyo` = la ficha de ahora. Lo que cambió solo de un lado se toma de ese lado; si los dos cambiaron lo mismo, gana
+    la ficha. Los rollos se mezclan uno por uno (por su id), así un color cambiado por el encargado y un rollo nuevo agregado por un
+    invitado se conservan los dos."""
+    if mio == suyo:
+        return copy.deepcopy(mio)
+    if base is None or mio == base:
+        return copy.deepcopy(suyo)
+    if suyo == base:
+        return copy.deepcopy(mio)
+    if isinstance(mio, dict) and isinstance(suyo, dict) and isinstance(base, dict):
+        salida = {}
+        for k in list(suyo) + [k for k in mio if k not in suyo]:
+            if k not in mio and k in base:
+                continue                                       # lo quité aquí y la ficha no lo cambió
+            if k not in suyo and k in base:
+                if mio.get(k) == base.get(k):
+                    continue                                   # lo quitaron en la ficha
+            salida[k] = _mezclar(base.get(k), mio.get(k), suyo.get(k)) if (k in mio and k in suyo) else copy.deepcopy(suyo[k] if k in suyo else mio[k])
+        return salida
+    if all(isinstance(x, list) and all(isinstance(e, dict) and e.get("id") for e in x) for x in (base, mio, suyo)):
+        b_, m_, s_ = ({e["id"]: e for e in x} for x in (base, mio, suyo))
+        orden = [e["id"] for e in (suyo if [e["id"] for e in suyo] != [e["id"] for e in base] else mio)]
+        orden += [i for i in list(s_) + list(m_) if i not in orden]
+        salida = []
+        for i in orden:
+            if i in m_ and i in s_:
+                salida.append(_mezclar(b_.get(i), m_[i], s_[i]))
+            elif i in s_ and i not in b_:
+                salida.append(copy.deepcopy(s_[i]))            # rollo nuevo en la ficha
+            elif i in m_ and i not in b_:
+                salida.append(copy.deepcopy(m_[i]))            # rollo nuevo aquí
+            elif i in s_ and i in b_ and i not in m_:
+                if s_[i] != b_[i]:
+                    salida.append(copy.deepcopy(s_[i]))        # lo quité aquí, pero en la ficha lo cambiaron: se conserva
+            elif i in m_ and i in b_ and i not in s_:
+                if m_[i] != b_[i]:
+                    salida.append(copy.deepcopy(m_[i]))
+        return salida
+    return copy.deepcopy(suyo)
 
 
 def _proyectos_compartidos(http, est, conocidas=(), forzar=False, ahora=None):
@@ -575,15 +622,41 @@ def sincronizar(http, correo, dispositivo="", crear=True, carpeta=None, ahora=No
     rem = {n: e for n, e in remoto["proyectos"].items() if isinstance(e, dict) and isinstance(e.get("p"), dict)}
     # proyectos que el encargado te compartió (fichas «FILMFLOW_PROYECTO · …»): aparecen solos y se actualizan con la ficha;
     # uno tuyo con el mismo nombre nunca se pisa. Si te quitaron el acceso (la ficha ya no está), el proyecto se quita.
+    # las fichas de los proyectos que TÚ compartes también se leen: un invitado que puede editar pudo devolver cambios
+    propias_fid = {e_[0]["ficha"]: n for n, e_ in loc.items() if e_[0].get("ficha") and not e_[0].get("origen")}
     conocidas = set(est.get("fichas_unidas") or []) | {(e_[0].get("origen") or {}).get("ficha") for e_ in loc.values()} \
-        | {(e_["p"].get("origen") or {}).get("ficha") for e_ in rem.values()}
+        | {(e_["p"].get("origen") or {}).get("ficha") for e_ in rem.values()} | set(propias_fid)
+    bases = {f: (v or {}).get("doc") for f, v in (est.get("fichas") or {}).items()}       # cada ficha como se vio la vez anterior
     compartidos, fichas, perdidas_f = _proyectos_compartidos(http, est, sorted(x for x in conocidas if x), forzar=forzar_fichas, ahora=ahora)
-    for n, (p_c, mod_c, fid, _de) in compartidos.items():
+    sin_llave = lambda p_: {k: v for k, v in p_.items() if k not in _NO_SE_COMPARTE and not str(k).startswith("_")}
+    devolver = {}                                              # proyectos compartidos CONTIGO cuyos cambios hay que llevar a la ficha
+    for n, (p_c, mod_c, fid, de_) in compartidos.items():
+        doc_ = (fichas.get(fid) or {}).get("doc") or {}
+        base_ = (bases.get(fid) or {}).get("p")
+        if fid in propias_fid:                                 # TU ficha: lo que un invitado cambió se mezcla con lo tuyo
+            n_ = propias_fid[fid]
+            l_ = loc[n_]
+            if base_ is not None and doc_.get("p") != base_:
+                mio = sin_llave(l_[0])
+                mezcla = _mezclar(base_, mio, doc_["p"])
+                if mezcla != mio:
+                    nuevo_p = dict(mezcla, **{k: l_[0][k] for k in _NO_SE_COMPARTE if k in l_[0]})
+                    loc[n_] = (nuevo_p, max(l_[1], mod_c) + 1, _huella(nuevo_p))
+            continue
         r_ = rem.get(n)
         de_ficha = r_ is not None and ((r_["p"].get("origen") or {}).get("ficha") == fid)
         l_ = loc.get(n)
         if l_ is not None and (l_[0].get("origen") or {}).get("ficha") != fid:
             continue                                           # ya tienes un proyecto tuyo con ese nombre
+        if l_ is not None:                                     # el proyecto compartido contigo: tus cambios y los de la ficha, juntos
+            mio = sin_llave(l_[0])
+            mezcla = _mezclar(base_, mio, p_c and sin_llave(p_c))
+            nuevo_p = dict(mezcla, origen=p_c["origen"])
+            if mezcla != mio:
+                loc[n] = (nuevo_p, max(l_[1], mod_c, int((r_ or {}).get("mod", 0))) + 1, _huella(nuevo_p))
+            if mezcla != sin_llave(p_c):
+                devolver[n] = (fid, de_)
+            continue
         if r_ is None or (de_ficha and mod_c > int(r_.get("mod", 0))):
             rem[n] = {"p": p_c, "mod": mod_c}
     perdidos = set()
@@ -686,12 +759,25 @@ def sincronizar(http, correo, dispositivo="", crear=True, carpeta=None, ahora=No
     for n, e in final.items():
         if e["p"].get("ficha") and not e["p"].get("origen"):
             h = _huella({k: v for k, v in e["p"].items() if k not in _NO_SE_COMPARTE})
-            if propias.get(n) != h:
+            fid_ = e["p"]["ficha"]
+            visto = ((fichas.get(fid_) or {}).get("doc") or {}).get("p")
+            if propias.get(n) != h or (visto is not None and _huella(visto) != h):
                 try:
                     escribir_ficha(http, n, dict(e["p"]), correo, e["mod"])
                     propias[n] = h
+                    fichas[fid_] = {"t": "", "doc": _ficha_doc(n, e["p"], correo, e["mod"]), "leida": ahora}
                 except ErrorSync:
                     pass                                       # se intenta en la próxima sincronización
+    # --- los proyectos que te compartieron y que cambiaste aquí (puedes editar): tus cambios vuelven a la ficha para todo el equipo
+    for n, (fid_, de_) in devolver.items():
+        if n not in final:
+            continue
+        p_ = {k: v for k, v in final[n]["p"].items() if k not in _NO_SE_COMPARTE}
+        try:
+            escribir_ficha(http, n, dict(p_, ficha=fid_), de_, final[n]["mod"], crear=False)
+            fichas[fid_] = {"t": "", "doc": _ficha_doc(n, p_, de_, final[n]["mod"]), "leida": ahora}
+        except ErrorSync:
+            pass                                               # solo puedes ver: tus cambios se quedan en tus aparatos
 
     _guardar_estado({"id": sid, "correo": correo, "ultima": ahora, "error": "",
                      "proyectos": {n: {"h": _huella(e["p"]), "mod": e["mod"]} for n, e in final.items()},
