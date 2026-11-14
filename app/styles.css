@@ -432,7 +432,9 @@ body.con-reporte{overflow:hidden}
 .rep-col{min-width:0}
 @media (min-width:1000px){.rep-grid{grid-template-columns:minmax(340px,430px) minmax(0,1fr);gap:18px;align-items:start}
   .rep-col-vista{position:sticky;top:12px}}
-.rep-vista{position:relative;overflow:hidden;border-radius:12px;background:#E9ECEB;min-height:200px;border:1px solid var(--separador)}
+.rep-vista{position:relative;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;border-radius:12px;
+  background:#E9ECEB;min-height:200px;border:1px solid var(--separador);max-height:max(320px,calc(100dvh - 300px - env(safe-area-inset-bottom)))}
+.rep-lienzo{position:relative;overflow:hidden}
 .rep-vista iframe{position:absolute;left:0;top:0;border:0;transform-origin:0 0;background:transparent}
 .sec-grupo{margin-top:14px}
 .sec-tit{font-size:12px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--texto2);margin:0 0 4px}
@@ -449,7 +451,7 @@ input.sw:checked{background:var(--acento-ui)}
 input.sw:checked::after{transform:translateX(18px)}
 input.sw:disabled{cursor:default}
 input.sw:focus-visible{outline:2px solid var(--acento-ui);outline-offset:2px}
-@media (min-width:1000px){.rep-col-vista .tarjeta{max-height:calc(100vh - 150px);overflow:auto}}
+@media (min-width:1000px){.rep-vista{max-height:max(380px,calc(100dvh - 210px))}}
 
 /* ---- Reporte más compacto (14/11): en el teléfono, tres pasos; arriba siempre el nombre del reporte ---- */
 .rep-cab{background:var(--superficie);border:1px solid var(--separador);border-radius:16px;padding:12px 14px;margin:0 0 10px}
@@ -473,7 +475,7 @@ details.sec-grupo>summary::after{content:"›";font-size:20px;color:var(--texto2
 details.sec-grupo[open]>summary::after{transform:rotate(-90deg)}
 details.sec-grupo .sec-tit{margin:0;font-size:13px}
 .sec-cuenta{margin-left:auto;font-size:12.5px;color:var(--texto2);font-variant-numeric:tabular-nums}
-@media (min-width:1000px){.rep-col-vista{position:static}}
+@media (min-width:1000px){.rep-col-vista{position:sticky;top:calc(var(--cab) + env(safe-area-inset-top) + 10px)}}
 
 /* orden de las secciones del reporte (se arrastra como los rollos) */
 .rep-nombre .nota{margin:0 0 2px;font-size:12px;font-weight:500}
@@ -483,3 +485,27 @@ input.rep-in.grande{font-size:22px;letter-spacing:-.3px;color:var(--acento-texto
 input.rep-in:hover{background:var(--relleno,rgba(127,127,127,.1))}
 input.rep-in:focus{outline:none;background:var(--relleno,rgba(127,127,127,.12));box-shadow:inset 0 -2px 0 var(--acento-ui)}
 input.rep-in::placeholder{color:var(--texto3,#8e8e93);opacity:1}
+
+/* ---- Pantallas grandes (computador, iPad acostado): más ancho y las tarjetas del Resumen en dos columnas ---- */
+@media (min-width:1200px) and (min-height:600px){
+  main{max-width:1380px}
+  #vista[data-pagina="resumen"]{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:18px;align-items:start}
+  #vista[data-pagina="resumen"]>*{grid-column:1/-1;min-width:0}
+  #vista[data-pagina="resumen"]>section.tarjeta{grid-column:auto}
+  #vista[data-pagina="registrar"],#vista[data-pagina="correo"],#vista[data-pagina="hojas"],#vista[data-pagina="ajustes"],#vista[data-pagina="app"]{max-width:1080px}
+  .rep-grid{grid-template-columns:minmax(360px,440px) minmax(0,1fr);gap:22px}
+  .rep-cab{display:flex;align-items:flex-end;gap:18px}
+  .rep-cab .rep-nombre{flex:1}
+}
+/* ---- Teléfono acostado: el reporte en dos columnas (controles | vista previa), sin pasos; el nombre más compacto ---- */
+@media (orientation:landscape) and (max-height:520px) and (min-width:640px){
+  .rep-pasos{display:none}
+  .rep-grid{grid-template-columns:minmax(260px,330px) minmax(0,1fr);gap:14px;align-items:start}
+  .rep-grid [data-paso-de]{display:block!important}
+  .rep-col-vista{position:sticky;top:8px}
+  .rep-vista{max-height:max(240px,calc(100dvh - 120px))}
+  .rep-cab{padding:8px 12px}
+  .rep-nombre{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.4fr);column-gap:10px}
+  .rep-nombre .nota{grid-column:1/-1}
+  input.rep-in.grande,.rep-cab input.rep-in.grande{font-size:18px}
+}

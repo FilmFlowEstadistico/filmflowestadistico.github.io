@@ -586,6 +586,7 @@ async function mostrar(r, nuevaPagina) {
   if (r.ir) { if (r.toast) toast(r.toast); return ir(r.ir); }
   if (r.html !== undefined && r.pagina === actual) {
     const y = scrollY, abiertas = abiertos();
+    vista.dataset.pagina = actual;
     vista.innerHTML = cabeza(actual) + r.html; posprocesar(); restaurarAbiertos(abiertas);
     if (r.subtitulo) { const h = vista.querySelector(".cab-pagina"); if (h) h.insertAdjacentHTML("beforeend", `<p>${r.subtitulo}</p>`); }
     if (!nuevaPagina) scrollTo(0, y);
@@ -721,11 +722,11 @@ let vistaHtml = "";
 const ANCHO_HOJA = 860;
 const docVista = () => { const f = vista.querySelector(".rep-vista iframe"); try { return f && f.contentDocument; } catch (e) { return null; } };
 function ajustarVista() {                // la altura de la tarjeta sigue a la del documento (achicado al ancho de la tarjeta)
-  const caja = vista.querySelector(".rep-vista"), fr = caja && caja.querySelector("iframe"), d = docVista();
+  const caja = vista.querySelector(".rep-vista"), lienzo = caja && caja.querySelector(".rep-lienzo"), fr = caja && caja.querySelector("iframe"), d = docVista();
   if (!fr || !d || !d.documentElement) return;
   const s = Math.min(1, caja.clientWidth / ANCHO_HOJA), alto = Math.max(d.documentElement.scrollHeight, d.body ? d.body.scrollHeight : 0);
   fr.style.width = ANCHO_HOJA + "px"; fr.style.height = alto + "px"; fr.style.transform = `scale(${s})`;
-  caja.style.height = Math.ceil(alto * s) + "px";
+  lienzo.style.height = Math.ceil(alto * s) + "px";     // la caja tiene alto máximo y se desliza por dentro (el resto de la app no se mueve)
 }
 async function pintarVista(html) {
   const caja = vista.querySelector(".rep-vista"), fr = caja && caja.querySelector("iframe");
@@ -802,11 +803,13 @@ function prepararAsasVista() {
       el.style.transform = t ? `translateY(${t}px)` : "";
     });
   };
-  const auto = () => {                    // cerca del borde de la pantalla, la página se desplaza sola
+  const auto = () => {                    // cerca del borde de arriba o de abajo de la vista previa, se desliza sola (solo ella)
     if (!m) return;
+    const caja = vista.querySelector(".rep-vista"), rc_ = caja.getBoundingClientRect();
     const cy = fr().getBoundingClientRect().top + m.y * m.s;
-    const v = cy < 110 ? -12 : cy > innerHeight - 140 ? 12 : 0;
-    if (v) { const y0 = scrollY; scrollBy(0, v); m.y += (scrollY - y0) / m.s; pos(); }
+    const arriba = Math.max(rc_.top, 0), abajo = Math.min(rc_.bottom, innerHeight - (document.getElementById("accion-fija")?.offsetHeight || 0));
+    const v = cy < arriba + 50 ? -(14 + Math.min(30, arriba + 50 - cy) / 2) : cy > abajo - 50 ? 14 + Math.min(30, cy - abajo + 50) / 2 : 0;
+    if (v) { const y0 = caja.scrollTop; caja.scrollTop += v; m.y += (caja.scrollTop - y0) / m.s; pos(); }
     raf = requestAnimationFrame(auto);
   };
   d.addEventListener("pointerdown", (e) => {

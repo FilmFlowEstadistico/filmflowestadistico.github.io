@@ -646,7 +646,7 @@ def html_reporte(m):
         res += H.aviso("aviso", "No hay material registrado en los días elegidos." if r["elegidos"] else "Elige los días en el calendario.")
     apariencia = '<p class="nota">Apariencia del PDF</p>' + H.segmentado([("claro", "Claro"), ("oscuro", "Oscuro")], r["modo"], "reporte_modo_rapido")
     vista = ('<p class="nota">Arrastra los puntitos ⋮⋮ al lado de cada parte para cambiar su lugar en el PDF.</p>'
-             '<div class="rep-vista" aria-label="Vista previa del PDF"><iframe title="Vista previa del reporte" scrolling="no"></iframe></div>'
+             '<div class="rep-vista" aria-label="Vista previa del PDF (se desliza por dentro)"><div class="rep-lienzo"><iframe title="Vista previa del reporte" scrolling="no"></iframe></div></div>'
              if datos and datos["dias"] else H.vacia("Sin vista previa", "Elige días con material para ver cómo queda el PDF."))
     # En el teléfono la pestaña va en tres pasos (uno a la vez, para no hacer una página larguísima); en pantalla ancha se ve todo junto
     pasos = ('<div class="rep-pasos segmentado" role="tablist">'
