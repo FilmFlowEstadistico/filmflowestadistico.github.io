@@ -232,7 +232,7 @@ async function llamar(nombre, p = {}) {
   return out.r;
 }
 // «Silenciosas»: no ponen nada en pantalla mientras trabajan. «Bloqueantes»: tapan la pantalla (escriben o tardan). El resto: barra de progreso arriba.
-const SILENCIOSAS = new Set(["marcar", "marcar_seg", "alternar_vista", "mas_hallazgos", "decision", "casilla", "unidad", "correo_prefijo", "cancelar_formulario",
+const SILENCIOSAS = new Set(["reporte_seccion", "reporte_orden", "reporte_modo_rapido", "marcar", "marcar_seg", "alternar_vista", "mas_hallazgos", "decision", "casilla", "unidad", "correo_prefijo", "cancelar_formulario",
   "conectar_cancelar", "importar_cancelar", "mover_rollo", "quitar_rollo", "editar_rollo", "agregar_rollo", "renombrar_pedir", "nuevo_pedir", "eliminar_proyecto",
   "quitar_estadistico", "quitar_estatus", "estatus_principal", "ir", "corregir_cruce", "corregir_errores", "escribir", "conectar_abrir"]);
 const TEXTO_OCUPADO = { revisar: "Leyendo el PDF y tus hojas de Google…", escribir_ok: "Escribiendo en tus hojas y comprobándolas…",
@@ -718,24 +718,80 @@ const logoComoDato = async (ruta) => {
 // ---- Vista previa del PDF en la pestaña «Reporte»: el mismo HTML del reporte, dibujado al ancho de una hoja (860 px, como el PDF) y
 // achicado para que quepa en la tarjeta; la altura sigue a la del documento. Se guarda dónde ibas para no saltar al cambiar algo.
 let vistaHtml = "";
+const ANCHO_HOJA = 860;
+const docVista = () => { const f = vista.querySelector(".rep-vista iframe"); try { return f && f.contentDocument; } catch (e) { return null; } };
+function ajustarVista() {                // la altura de la tarjeta sigue a la del documento (achicado al ancho de la tarjeta)
+  const caja = vista.querySelector(".rep-vista"), fr = caja && caja.querySelector("iframe"), d = docVista();
+  if (!fr || !d || !d.documentElement) return;
+  const s = Math.min(1, caja.clientWidth / ANCHO_HOJA), alto = Math.max(d.documentElement.scrollHeight, d.body ? d.body.scrollHeight : 0);
+  fr.style.width = ANCHO_HOJA + "px"; fr.style.height = alto + "px"; fr.style.transform = `scale(${s})`;
+  caja.style.height = Math.ceil(alto * s) + "px";
+}
 async function pintarVista(html) {
   const caja = vista.querySelector(".rep-vista"), fr = caja && caja.querySelector("iframe");
   if (!fr) return;
   const conLogos = html.replace("LOGO_CLARO", await logoComoDato("assets/logo_filmflow_claro.png"))
                        .replace("LOGO_OSCURO", await logoComoDato("assets/logo_filmflow_oscuro.png"));
+  if (conLogos === vistaHtml && fr.dataset.lista) { ajustarVista(); return; }
   vistaHtml = conLogos;
-  const ANCHO = 860;
-  const ajustar = () => {
-    try {
-      const s = Math.min(1, caja.clientWidth / ANCHO), d = fr.contentDocument;
-      const alto = Math.max(d.documentElement.scrollHeight, d.body ? d.body.scrollHeight : 0);
-      fr.style.width = ANCHO + "px"; fr.style.height = alto + "px"; fr.style.transform = `scale(${s})`;
-      caja.style.height = Math.ceil(alto * s) + "px";
-    } catch (e) {}
-  };
-  fr.onload = () => { ajustar(); setTimeout(ajustar, 300); };
+  fr.onload = () => { fr.dataset.lista = "1"; sincronizarVista(); ajustarVista(); setTimeout(ajustarVista, 300); };
   fr.srcdoc = conLogos;
-  if (!caja.dataset.vigia && window.ResizeObserver) { caja.dataset.vigia = "1"; new ResizeObserver(ajustar).observe(caja); }
+  if (!caja.dataset.vigia && window.ResizeObserver) { caja.dataset.vigia = "1"; new ResizeObserver(ajustarVista).observe(caja); }
+}
+// Si tocaste interruptores u ordenaste mientras la vista previa todavía cargaba, al terminar de cargar se pone igual a la pantalla.
+function sincronizarVista() {
+  const d = docVista(); if (!d || !d.querySelector(".hoja")) return;
+  vista.querySelectorAll("input.sw[data-sec]:not(:disabled)").forEach((sw) => {
+    const el = d.querySelector(`[data-sec="${sw.dataset.sec}"]`); if (el) el.hidden = !sw.checked;
+  });
+  d.querySelectorAll("[data-sec-grupo]").forEach((g) => { g.hidden = ![...g.querySelectorAll("[data-sec]")].some((x) => !x.hidden); });
+  const orden = [...vista.querySelectorAll(".ord-it")].map((x) => x.dataset.sec);
+  if (orden.length) ordenarVista(orden, true);
+}
+// Prender / apagar una sección: en la vista previa se muestra o se esconde al instante (ya viene armada), con una entrada suave;
+// la lista del orden y la cuenta de cada grupo también cambian. Python solo lo guarda (sin volver a dibujar la pantalla).
+function prenderSeccion(sid, on) {
+  const d = docVista();
+  if (d) {
+    const el = d.querySelector(`[data-sec="${sid}"]`);
+    if (el) { el.hidden = !on; el.classList.remove("entra"); if (on) { void el.offsetWidth; el.classList.add("entra"); } }
+    const g = el && el.closest("[data-sec-grupo]");
+    if (g) g.hidden = ![...g.querySelectorAll("[data-sec]")].some((x) => !x.hidden);
+    ajustarVista();
+  }
+  const it = vista.querySelector(`.ord-it[data-sec="${sid}"]`); if (it) it.hidden = !on;
+  vista.querySelectorAll("details.sec-grupo").forEach((det) => {
+    const sw = [...det.querySelectorAll("input.sw:not(:disabled)")];
+    const c = det.querySelector(".sec-cuenta"); if (c) c.textContent = `${sw.filter((x) => x.checked).length} de ${sw.length}`;
+  });
+  vista.querySelectorAll('.segmentado .seg[data-a="reporte_preset"]').forEach((b) => b.classList.remove("on"));
+  const nuevo = d && d.documentElement ? "<!doctype html>" + d.documentElement.outerHTML : "";
+  if (nuevo) vistaHtml = nuevo;
+}
+// Reordenar: las secciones de la vista previa se mueven a su nuevo lugar con la misma animación de los rollos (FLIP).
+function ordenarVista(orden, sinAnimar) {
+  const d = docVista(); if (!d) return;
+  const hoja = d.querySelector(".hoja"), pie = hoja && hoja.querySelector("footer"); if (!hoja) return;
+  const bloques = [...hoja.querySelectorAll(":scope > [data-sec], :scope > [data-sec-grupo]")];
+  const antes = new Map(bloques.concat([...d.querySelectorAll(".kpi-g > .kpi")]).map((el) => [el, el.getBoundingClientRect()]));
+  const FAM = ["cifras", "comparacion", "clips", "sonido", "extremos"];
+  const grupo = hoja.querySelector('[data-sec-grupo="cifras"]');
+  let grupoPuesto = false;
+  orden.forEach((sid) => {
+    if (FAM.includes(sid)) {
+      if (grupo && !grupoPuesto) { hoja.insertBefore(grupo, pie); grupoPuesto = true; }
+      const k = grupo && grupo.querySelector(`:scope > [data-sec="${sid}"]`); if (k) grupo.appendChild(k);
+      return;
+    }
+    const el = hoja.querySelector(`:scope > [data-sec="${sid}"]`); if (el) hoja.insertBefore(el, pie);
+  });
+  if (!sinAnimar) antes.forEach((r0, el) => {
+    const r1 = el.getBoundingClientRect(), dy = r0.top - r1.top, dx = r0.left - r1.left;
+    if (!dy && !dx) return;
+    el.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }], { duration: 320, easing: "cubic-bezier(.2,.8,.2,1)" });
+  });
+  vistaHtml = "<!doctype html>" + d.documentElement.outerHTML;
+  ajustarVista();
 }
 async function abrirReporte(rep) {
   const html = rep.html.replace("LOGO_CLARO", await logoComoDato("assets/logo_filmflow_claro.png"))
@@ -782,10 +838,17 @@ document.addEventListener("click", async (e) => {
   const p = JSON.parse(t.dataset.p || "{}");
   if (t.dataset.a === "ir") return ir(p.pagina);
   if (t.disabled) return;
+  if (t.dataset.a === "reporte_modo_rapido") {          // claro / oscuro: la vista previa cambia al instante; Python solo lo guarda
+    t.parentElement.querySelectorAll(".seg").forEach((b) => b.classList.toggle("on", b === t));
+    const d = docVista(); if (d) d.documentElement.dataset.tema = p.valor;
+    vistaHtml = vistaHtml.replace(/data-tema="(claro|oscuro)"/, `data-tema="${p.valor}"`);
+    api("reporte_modo_rapido", p); return;
+  }
   mostrar(await api(t.dataset.a, p));
 });
 document.addEventListener("change", async (e) => {
   const t = e.target;
+  if (t.matches('input.sw[data-sec]')) { prenderSeccion(t.dataset.sec, t.checked); api("reporte_seccion", { id: t.dataset.sec, valor: t.checked }); return; }
   if (t.matches('input[type="checkbox"][data-a]')) { mostrar(await api(t.dataset.a, { ...JSON.parse(t.dataset.p || "{}"), valor: t.checked })); return; }
   if (t.matches('[data-form="tipo"]')) alternarTipo(t.closest("form"));
   if (t.id === "correo-asunto") api("correo_prefijo", { asunto: t.value });
@@ -823,8 +886,9 @@ document.addEventListener("submit", async (e) => {
   document.addEventListener("click", (e) => { if (e.target.closest(".grip")) { e.preventDefault(); e.stopPropagation(); } }, true);
   document.addEventListener("pointerdown", (e) => {
     const g = e.target.closest(".grip"); if (!g) return;
-    const card = g.closest(".rollo"); card.parentElement.querySelectorAll("details.rollo[open]").forEach((x) => { x.open = false; });
-    const items = [...card.parentElement.querySelectorAll(":scope > .rollo")];
+    const card = g.closest(".rollo, .ord-it"); if (!card) return;
+    card.parentElement.querySelectorAll("details.rollo[open]").forEach((x) => { x.open = false; });
+    const items = [...card.parentElement.querySelectorAll(card.classList.contains("ord-it") ? ":scope > .ord-it:not([hidden])" : ":scope > .rollo")];
     const rects = items.map((el) => { const q = el.getBoundingClientRect(); return { top: q.top + scrollY, height: q.height }; });
     d = { card, items, rects, i: items.indexOf(card), a: items.indexOf(card), y0: e.clientY + scrollY, cy: e.clientY, sep: rects[1] ? Math.max(0, rects[1].top - rects[0].top - rects[0].height) : 0, id: e.pointerId };
     try { g.setPointerCapture(e.pointerId); } catch (x) {}
@@ -838,6 +902,16 @@ document.addEventListener("submit", async (e) => {
     cancelAnimationFrame(raf);
     const { i, a, items, card } = d; d = null;
     card.classList.remove("arrastrando"); card.parentElement.classList.remove("ordenando");
+    if (card.classList.contains("ord-it")) {             // orden del reporte: se mueve aquí mismo, sin volver a dibujar la pantalla
+      items.forEach((el) => { el.style.transition = "none"; el.style.transform = ""; });
+      if (!cancelar && a !== i) {
+        const ref = items[a]; ref.parentElement.insertBefore(card, a > i ? ref.nextSibling : ref);
+        const orden = [...card.parentElement.querySelectorAll(":scope > .ord-it")].map((x) => x.dataset.sec);
+        ordenarVista(orden); api("reporte_orden", { orden });
+      }
+      requestAnimationFrame(() => items.forEach((el) => { el.style.transition = ""; }));
+      return;
+    }
     items.forEach((el) => { el.style.transform = ""; });
     if (!cancelar && a !== i) mostrar(await api("mover_rollo", { i, a }));
   };

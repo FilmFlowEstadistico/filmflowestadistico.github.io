@@ -832,6 +832,10 @@ border-radius:999px;padding:3px 10px;margin-left:10px;vertical-align:1px}
 .pu-barra{height:100%;border-radius:999px;background:var(--verde)}
 .pu-cams{font-size:11.5px;color:var(--texto2);line-height:1.6}.pu-cams i{display:inline-block;width:8px;height:8px;border-radius:50%;margin:0 4px 0 6px}
 .kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:14px}
+.kpi-g{display:contents}
+[hidden]{display:none!important}
+.sec-b.entra,.kpi-g.entra>.kpi{animation:entra .28s ease-out}
+@keyframes entra{from{opacity:0;transform:translateY(8px)}}
 .kpi{background:var(--suave);border-radius:14px;padding:14px 16px}
 .kpi span{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--texto2);white-space:nowrap}
 .kpi b{display:block;font-size:24px;letter-spacing:-.4px;margin:4px 0 2px;white-space:nowrap}
@@ -1070,11 +1074,140 @@ def secciones_disponibles(datos):
     return no
 
 
-def _pagina_resumen(datos, logo, completo=False, secciones=None):
-    """El reporte con las secciones elegidas (por defecto: las del preset «Resumen», o todas con `completo`). Sin cajas dentro de
-    cajas: la página es plana y cada bloque es una sola tarjeta."""
-    sec = set(secciones) if secciones is not None else secciones_de("detallado" if completo else "resumen")
+FAMILIA_CIFRAS = ("cifras", "comparacion", "clips", "sonido", "extremos")      # tarjetas de cifras: van juntas en una fila
+
+
+def orden_de(orden=None):
+    """El orden de las secciones en el PDF: el elegido (los ids que existan) y, al final, las que falten en su orden normal."""
+    ids = [x[0] for x in SECCIONES]
+    propio = [x for x in (orden or []) if x in ids]
+    return list(dict.fromkeys(propio + ids))
+
+
+def _bloques(datos):
+    """Cada sección armada por separado: {id: html} (las cifras: {id: tarjeta}). Solo las que tienen datos."""
     t, g, ant = datos["totales"], datos["general"], datos["anterior"]
+    B, K = {}, {}
+    if datos["avisos"]:
+        B["avisos"] = "".join(f'<div class="aviso">{_e(a)}</div>' for a in datos["avisos"])
+    if datos["equipo"]:
+        B["equipo"] = ('<div class="equipo">' + "".join(f'<div><span>{_e(k)}</span><b>{_e(v)}</b></div>' for k, v in datos["equipo"].items())
+                       + "</div>")
+    kpi = lambda a, b, c="": f'<div class="kpi"><span>{_e(a)}</span><b>{_e(b)}</b>{c}</div>'
+    K["cifras"] = (kpi("Espacio OCF", f'{t["tb"]:,.2f} TB', f'<i>{t["gb"]:,.2f} GB</i>')
+                   + kpi("Días rodados", str(t["dias"]), f'<i>{_e(texto_semanas(datos["semanas"]) or datos["periodo"])}</i>')
+                   + kpi("Promedio por día", f'{t["promedio_gb"] / rsm.GB_POR_TB:,.2f} TB', f'<i>{t["promedio_gb"]:,.0f} GB</i>')
+                   + kpi("Duración", _dur(t["seg"]).replace(" h", "") + " h" if t["seg"] else "—",
+                         f'<i>{_num(t["clips"])} clips de video</i>' if t["clips"] else ""))
+    if ant and ant["gb"] and t["dias"]:
+        dif = (t["gb"] - ant["gb"]) / ant["gb"]
+        K["comparacion"] = kpi("Frente al periodo anterior", f'{"▲" if dif >= 0 else "▼"} {abs(dif) * 100:.0f} %',
+                               f'<i class="{"sube" if dif >= 0 else "baja"}">{_e(ant["texto"])}: {_e(_peso(ant["gb"]))}</i>')
+    K["clips"] = (kpi("Clips de video", _num(t["clips"]) if t["clips"] else "—", f'<i>{_num(t["clips_audio"])} clips de audio</i>' if t["clips_audio"] else "")
+                  + kpi("Tarjetas", _num(t["tarjetas"]) if t["tarjetas"] else "—", f'<i>{t["equipos"]} {"equipo" if t["equipos"] == 1 else "equipos"} de grabación</i>'))
+    gb_a = sum(c["gb"] for c in datos["camaras"] if c["tipo"] == "sonido")
+    if gb_a or t.get("clips_audio") or t.get("seg_audio"):
+        K["sonido"] = kpi("Sonido", _peso(gb_a) if gb_a else "—", f'<i>{_num(t["clips_audio"])} clips · {_e(_dur(t["seg_audio"])) if t["seg_audio"] else "—"}</i>')
+    if t["mejor"] and t["dias"] > 1:
+        K["extremos"] = (kpi("Día con más material", _peso(t["mejor"]["gb"]), f'<i>{_e(t["mejor"]["dia"])} · {_e(texto_fecha(t["mejor"]["fecha"], False))}</i>')
+                         + kpi("Día con menos material", _peso(t["menor"]["gb"]), f'<i>{_e(t["menor"]["dia"])} · {_e(texto_fecha(t["menor"]["fecha"], False))}</i>'))
+    pu = [u for u in datos.get("por_unidad") or []]
+    if pu and t["gb"]:
+        filas = "".join(
+            f'<div class="pu"><div class="pu-cab"><b>{_e(u["nombre"])}</b><span>{u["tb"]:,.2f} TB · {u["pct"] * 100:.1f} % · '
+            f'{u["dias"]} {"día" if u["dias"] == 1 else "días"}</span></div>'
+            + (f'<div class="pu-eq">' + " · ".join(f"{_e(k)}: <b>{_e(v)}</b>" for k, v in u["equipo"].items()) + "</div>"
+               if u.get("equipo") else "") +
+            f'<div class="pu-pista"><div class="pu-barra" style="width:{u["pct"] * 100:.1f}%"></div></div>'
+            f'<div class="pu-cams">' + (" · ".join(f'<i style="background:{_e(c)}"></i>{_e(n)} {g_ / rsm.GB_POR_TB:,.2f} TB'
+                                                     for n, g_, c in u["camaras"]) or "sin material en estos días") + '</div></div>'
+            for u in pu)
+        B["por_unidad"] = '<section class="tj bloque"><h2>Por unidad</h2>' + filas + "</section>"
+    if datos["almacenamiento"] and t["gb"]:
+        B["alm_camara"] = ('<section class="tj bloque"><h2>Almacenamiento por cámara</h2>' + _dos(_svg_barras_camaras, datos["almacenamiento"])
+                           + f'<div class="pie-tj"><span>Espacio utilizado OCF</span><b>{t["gb"]:,.2f} GB</b></div></section>')
+    det = _detalle_camaras(datos)
+    if datos["tipos"] and len(datos["tipos"]) > 1:
+        B["tipos"] = "".join(x for x in det if "Material por tipo" in x)
+    if any("Cámaras y rollos" in x for x in det):
+        B["tabla_camaras"] = "".join(x for x in det if "Cámaras y rollos" in x)
+    cams = [c for c in datos["camaras"] if c["gb"] > 0 and (c.get("modelo") or c.get("rental"))]
+    if cams:
+        filas = "".join(f'<tr><td><span class="cam"><i style="background:{c["color"]}"></i>{_e(c["nombre"])}</span></td>'
+                        f'<td>{_e(c.get("modelo") or "—")}</td><td>{_e(c.get("rental") or "—")}</td></tr>' for c in cams)
+        B["equipos"] = ('<section class="tj bloque"><h2>Equipo y rental</h2><table class="limpia"><thead><tr><th>Cámara</th><th>Modelo</th>'
+                        f'<th>Rental</th></tr></thead><tbody>{filas}</tbody></table></section>')
+    dias, semanas = datos["dias"], datos["por_semana"]
+    if len(semanas) > 1:
+        prom_sem = t["gb"] / len(semanas)
+        B["graf_semanas"] = ('<section class="tj bloque"><h2>TB por semana</h2>'
+                             + _dos(_svg_columnas_simple, [(w["nombre"].replace("Semana ", "S"), w["gb"], f'{w["dias"]} días') for w in semanas], prom_sem)
+                             + "</section>")
+        filas = "".join(f'<tr><td><b>{_e(w["nombre"])}</b><span class="sub ocultar-movil"> · {_e(w["primero"])}{" – " + _e(w["ultimo"]) if w["ultimo"] != w["primero"] else ""}</span></td>'
+                        f'<td class="n">{w["dias"]}</td><td class="n">{_e(_peso(w["gb"]))}</td>'
+                        f'<td class="n ocultar-movil">{_e(_peso(w["gb"] / w["dias"]))}</td><td class="n">{_e(rsm.hms(w["seg"]))}</td></tr>' for w in semanas)
+        B["tabla_semanas"] = ('<section class="tj bloque"><h2>Resumen por semana</h2><table class="limpia"><thead><tr><th>Semana</th><th class="n">Días</th>'
+                              '<th class="n">Total</th><th class="n ocultar-movil">Promedio/día</th><th class="n">Duración</th></tr></thead>'
+                              f'<tbody>{filas}</tbody><tfoot><tr><td>Total</td><td class="n">{t["dias"]}</td><td class="n">{_e(_peso(t["gb"]))}</td>'
+                              f'<td class="n ocultar-movil">{_e(_peso(t["promedio_gb"]))}</td><td class="n">{_e(rsm.hms(t["seg"]))}</td></tr></tfoot></table></section>')
+    if len(dias) > 1:
+        muchos = len(dias) > 14
+        B["graf_dias"] = ('<section class="tj bloque"><h2>TB por día</h2>'
+                          + (_dos(_svg_columnas_simple, [(d["dia"], d["gb"], "") for d in dias], t["promedio_gb"], alto=190, valores=False) if muchos else
+                             _dos(_svg_columnas_simple, [(d["dia"], d["gb"], texto_fecha(d["fecha"], False)) for d in dias], t["promedio_gb"]))
+                          + "</section>")
+    if dias:
+        filas = "".join(f'<tr><td><b>{_e(d["dia"])}</b></td><td class="n">{_e(_peso(d["gb"]))}</td>'
+                        f'<td class="n">{_e(rsm.hms(d["seg"]))}</td><td class="n">{_num(d["clips"]) if d["clips"] else "—"}</td></tr>'
+                        for d in dias)
+        B["tabla_dias"] = ('<section class="tj bloque"><h2>' + ("Día por día" if len(dias) > 1 else "El día") + '</h2><table class="limpia"><thead><tr>'
+                           '<th>Día</th><th class="n">Total</th><th class="n">Duración</th><th class="n">Clips</th></tr>'
+                           f'</thead><tbody>{filas}</tbody>'
+                           + (f'<tfoot><tr><td>Total</td><td class="n">{_e(_peso(t["gb"]))}</td><td class="n">{_e(rsm.hms(t["seg"]))}</td>'
+                              f'<td class="n">{_num(t["clips"])}</td></tr></tfoot>' if len(dias) > 1 else "") + "</table></section>")
+        B["detalle_dias"] = "".join(_detalle_dias(datos))
+    if g["gb"]:
+        anillos = ""
+        if g["dias_previstos"]:
+            anillos += _svg_anillo(g["dias"] / g["dias_previstos"], f'{g["dias"]}/{g["dias_previstos"]}', "días")
+        if g["espacio_previsto_gb"]:
+            anillos += _svg_anillo(g["gb"] / g["espacio_previsto_gb"], f'{g["gb"] / g["espacio_previsto_gb"] * 100:.0f} %', "espacio")
+        lista = [("Total días de rodaje", str(g["dias_previstos"]) if g["dias_previstos"] else "—"), ("Días rodados", str(g["dias"])),
+                 ("Promedio por día", _peso(g["promedio_gb"])), ("Espacio utilizado OCF", f'{g["gb"]:,.2f} GB'),
+                 ("Espacio aprox. total", f'{g["espacio_previsto_gb"]:,.2f} GB' if g["espacio_previsto_gb"] else "—")]
+        sem_ = f' · {_e(nombre_semana(g["semana"]))}' if g["semana"] else ""
+        B["avance"] = (f'<section class="tj bloque"><h2>Avance del proyecto <small>hasta el {_e(texto_fecha(datos["hasta"]))}{sem_}</small></h2>'
+                       f'<div class="avance2"><div class="anillos">{anillos}</div><dl>'
+                       + "".join(f"<dt>{_e(a)}</dt><dd>{_e(b)}</dd>" for a, b in lista) + "</dl></div></section>")
+        if g["dias_previstos"] or g["espacio_previsto_gb"]:
+            faltan_d = max(0, (g["dias_previstos"] or 0) - g["dias"]) if g["dias_previstos"] else None
+            al_ritmo = faltan_d * g["promedio_gb"] if faltan_d is not None else None
+            faltan_gb = max(0.0, g["espacio_previsto_gb"] - g["gb"]) if g["espacio_previsto_gb"] else None
+            lista = [("Días por rodar", str(faltan_d) if faltan_d is not None else "—"),
+                     ("Espacio que falta según lo previsto", _peso(faltan_gb) if faltan_gb is not None else "—"),
+                     ("Espacio que falta al ritmo actual", _peso(al_ritmo) if al_ritmo is not None else "—"),
+                     ("Total al terminar (al ritmo actual)", _peso(g["gb"] + al_ritmo) if al_ritmo is not None else "—")]
+            B["prevision"] = ('<section class="tj bloque"><h2>Lo que falta <small>según el promedio de los días rodados</small></h2><div class="avance2"><dl>'
+                              + "".join(f"<dt>{_e(a)}</dt><dd>{_e(b)}</dd>" for a, b in lista) + "</dl></div></section>")
+        if len(g["filas"]) > 1:
+            B["linea_proyecto"] = ('<section class="tj bloque"><h2>Todo el proyecto, día por día <small>GB de cada día; en verde, los días de este reporte</small></h2>'
+                                   + _svg_linea(g["filas"], datos["elegidos"]) + "</section>")
+            B["tabla_proyecto"] = ('<section class="tj"><h2>Almacenamiento y tiempo rodado <small>todos los días del proyecto</small></h2>'
+                                   + _tabla_dias(g["filas"], datos["elegidos"]) + "</section>")
+    if datos["formato"]:
+        B["formato"] = ('<div class="formato bloque"><span class="f-t">Formato de grabación</span>'
+                        + "".join(f'<span class="chip"><i>{_e(k)}</i> {_e(v)}</span>' for k, v in datos["formato"]) + "</div>")
+    tj = "".join(_detalle_tarjetas(datos))
+    if tj:
+        B["tarjetas"] = tj
+    return B, K
+
+
+def _pagina_resumen(datos, logo, completo=False, secciones=None, orden=None, vista_previa=False):
+    """El reporte con las secciones elegidas, en el orden elegido. Con `vista_previa` van TODAS las que tienen datos (las apagadas
+    escondidas): así la vista previa prende, apaga y reordena al instante sin volver a armar la página."""
+    sec = set(secciones) if secciones is not None else secciones_de("detallado" if completo else "resumen")
+    t = datos["totales"]
     out = []
     meta = [texto_dias(datos) if t["dias"] else "", "generado " + datos["generado"].strftime("%d/%m/%Y %H:%M")]
     chip_u = f'<span class="u-chip">{_e(datos["unidad"])}</span>' if datos.get("unidad") else ""
@@ -1086,137 +1219,22 @@ def _pagina_resumen(datos, logo, completo=False, secciones=None):
                f'<h1 class="p-titulo">{_e(tg)}</h1>'
                + (f'<div class="periodo">{_e(periodo)}</div>' if periodo else "") +
                f'<div class="meta">{" · ".join(_e(x) for x in meta if x)}</div></div>{logo}</header>')
-    if "avisos" in sec:
-        for a in datos["avisos"]:
-            out.append(f'<div class="aviso">{_e(a)}</div>')
-    if "equipo" in sec and datos["equipo"]:
-        out.append('<div class="equipo">' + "".join(f'<div><span>{_e(k)}</span><b>{_e(v)}</b></div>' for k, v in datos["equipo"].items())
-                   + "</div>")
-    # ---- cifras ----
-    cifras = []
-    if "cifras" in sec:
-        cambio = ""
-        if "comparacion" in sec and ant and ant["gb"] and t["dias"]:
-            dif = (t["gb"] - ant["gb"]) / ant["gb"]
-            cambio = f'<i class="{"sube" if dif >= 0 else "baja"}">{"▲" if dif >= 0 else "▼"} {abs(dif) * 100:.0f} % vs. {_e(ant["texto"])}</i>'
-        cifras += [("Espacio OCF", f'{t["tb"]:,.2f} TB', cambio or f'<i>{t["gb"]:,.2f} GB</i>'),
-                   ("Días rodados", str(t["dias"]), f'<i>{_e(texto_semanas(datos["semanas"]) or datos["periodo"])}</i>'),
-                   ("Promedio por día", f'{t["promedio_gb"] / rsm.GB_POR_TB:,.2f} TB', f'<i>{t["promedio_gb"]:,.0f} GB</i>'),
-                   ("Duración", _dur(t["seg"]).replace(" h", "") + " h" if t["seg"] else "—",
-                    f'<i>{_num(t["clips"])} clips de video</i>' if t["clips"] else "")]
-    elif "comparacion" in sec and ant and ant["gb"] and t["dias"]:
-        dif = (t["gb"] - ant["gb"]) / ant["gb"]
-        cifras.append(("Frente al periodo anterior", f'{"▲" if dif >= 0 else "▼"} {abs(dif) * 100:.0f} %', f'<i>{_e(ant["texto"])}: {_e(_peso(ant["gb"]))}</i>'))
-    if "clips" in sec:
-        cifras += [("Clips de video", _num(t["clips"]) if t["clips"] else "—", f'<i>{_num(t["clips_audio"])} clips de audio</i>' if t["clips_audio"] else ""),
-                   ("Tarjetas", _num(t["tarjetas"]) if t["tarjetas"] else "—", f'<i>{t["equipos"]} {"equipo" if t["equipos"] == 1 else "equipos"} de grabación</i>')]
-    if "sonido" in sec:
-        gb_a = sum(c["gb"] for c in datos["camaras"] if c["tipo"] == "sonido")
-        cifras.append(("Sonido", _peso(gb_a) if gb_a else "—",
-                       f'<i>{_num(t["clips_audio"])} clips · {_e(_dur(t["seg_audio"])) if t["seg_audio"] else "—"}</i>'))
-    if "extremos" in sec and t["mejor"] and t["dias"] > 1:
-        cifras += [("Día con más material", _peso(t["mejor"]["gb"]), f'<i>{_e(t["mejor"]["dia"])} · {_e(texto_fecha(t["mejor"]["fecha"], False))}</i>'),
-                   ("Día con menos material", _peso(t["menor"]["gb"]), f'<i>{_e(t["menor"]["dia"])} · {_e(texto_fecha(t["menor"]["fecha"], False))}</i>')]
-    if cifras:
-        out.append('<div class="kpis bloque">' + "".join(f'<div class="kpi"><span>{_e(a)}</span><b>{_e(b)}</b>{c}</div>'
-                                                         for a, b, c in cifras) + "</div>")
-    # ---- con varias unidades y «Todo»: cuánto puso cada una ----
-    pu = [u for u in datos.get("por_unidad") or []]
-    if "por_unidad" in sec and pu and t["gb"]:
-        filas = "".join(
-            f'<div class="pu"><div class="pu-cab"><b>{_e(u["nombre"])}</b><span>{u["tb"]:,.2f} TB · {u["pct"] * 100:.1f} % · '
-            f'{u["dias"]} {"día" if u["dias"] == 1 else "días"}</span></div>'
-            + (f'<div class="pu-eq">' + " · ".join(f"{_e(k)}: <b>{_e(v)}</b>" for k, v in u["equipo"].items()) + "</div>"
-               if u.get("equipo") else "") +
-            f'<div class="pu-pista"><div class="pu-barra" style="width:{u["pct"] * 100:.1f}%"></div></div>'
-            f'<div class="pu-cams">' + (" · ".join(f'<i style="background:{_e(c)}"></i>{_e(n)} {g_ / rsm.GB_POR_TB:,.2f} TB'
-                                                     for n, g_, c in u["camaras"]) or "sin material en estos días") + '</div></div>'
-            for u in pu)
-        out.append('<section class="tj bloque"><h2>Por unidad</h2>' + filas + "</section>")
-    # ---- cámaras ----
-    if "alm_camara" in sec and datos["almacenamiento"] and t["gb"]:
-        out.append('<section class="tj bloque"><h2>Almacenamiento por cámara</h2>' + _dos(_svg_barras_camaras, datos["almacenamiento"])
-                   + f'<div class="pie-tj"><span>Espacio utilizado OCF</span><b>{t["gb"]:,.2f} GB</b></div></section>')
-    det = _detalle_camaras(datos)
-    if "tipos" in sec and datos["tipos"] and len(datos["tipos"]) > 1:
-        out += [x for x in det if "Material por tipo" in x]
-    if "tabla_camaras" in sec:
-        out += [x for x in det if "Cámaras y rollos" in x]
-    if "equipos" in sec:
-        cams = [c for c in datos["camaras"] if c["gb"] > 0 and (c.get("modelo") or c.get("rental"))]
-        if cams:
-            filas = "".join(f'<tr><td><span class="cam"><i style="background:{c["color"]}"></i>{_e(c["nombre"])}</span></td>'
-                            f'<td>{_e(c.get("modelo") or "—")}</td><td>{_e(c.get("rental") or "—")}</td></tr>' for c in cams)
-            out.append('<section class="tj bloque"><h2>Equipo y rental</h2><table class="limpia"><thead><tr><th>Cámara</th><th>Modelo</th>'
-                       f'<th>Rental</th></tr></thead><tbody>{filas}</tbody></table></section>')
-    # ---- días o semanas ----
-    dias, semanas = datos["dias"], datos["por_semana"]
-    if "graf_semanas" in sec and len(semanas) > 1:
-        prom_sem = t["gb"] / len(semanas)
-        out.append('<section class="tj bloque"><h2>TB por semana</h2>'
-                   + _dos(_svg_columnas_simple, [(w["nombre"].replace("Semana ", "S"), w["gb"], f'{w["dias"]} días') for w in semanas], prom_sem)
-                   + "</section>")
-    if "tabla_semanas" in sec and len(semanas) > 1:
-        filas = "".join(f'<tr><td><b>{_e(w["nombre"])}</b><span class="sub ocultar-movil"> · {_e(w["primero"])}{" – " + _e(w["ultimo"]) if w["ultimo"] != w["primero"] else ""}</span></td>'
-                        f'<td class="n">{w["dias"]}</td><td class="n">{_e(_peso(w["gb"]))}</td>'
-                        f'<td class="n ocultar-movil">{_e(_peso(w["gb"] / w["dias"]))}</td><td class="n">{_e(rsm.hms(w["seg"]))}</td></tr>' for w in semanas)
-        out.append('<section class="tj bloque"><h2>Resumen por semana</h2><table class="limpia"><thead><tr><th>Semana</th><th class="n">Días</th>'
-                   '<th class="n">Total</th><th class="n ocultar-movil">Promedio/día</th><th class="n">Duración</th></tr></thead>'
-                   f'<tbody>{filas}</tbody><tfoot><tr><td>Total</td><td class="n">{t["dias"]}</td><td class="n">{_e(_peso(t["gb"]))}</td>'
-                   f'<td class="n ocultar-movil">{_e(_peso(t["promedio_gb"]))}</td><td class="n">{_e(rsm.hms(t["seg"]))}</td></tr></tfoot></table></section>')
-    if "graf_dias" in sec and len(dias) > 1:
-        muchos = len(dias) > 14
-        out.append('<section class="tj bloque"><h2>TB por día</h2>'
-                   + (_dos(_svg_columnas_simple, [(d["dia"], d["gb"], "") for d in dias], t["promedio_gb"], alto=190, valores=False) if muchos else
-                      _dos(_svg_columnas_simple, [(d["dia"], d["gb"], texto_fecha(d["fecha"], False)) for d in dias], t["promedio_gb"]))
-                   + "</section>")
-    if "tabla_dias" in sec and dias:
-        filas = "".join(f'<tr><td><b>{_e(d["dia"])}</b></td><td class="n">{_e(_peso(d["gb"]))}</td>'
-                        f'<td class="n">{_e(rsm.hms(d["seg"]))}</td><td class="n">{_num(d["clips"]) if d["clips"] else "—"}</td></tr>'
-                        for d in dias)
-        out.append('<section class="tj bloque"><h2>' + ("Día por día" if len(dias) > 1 else "El día") + '</h2><table class="limpia"><thead><tr>'
-                   '<th>Día</th><th class="n">Total</th><th class="n">Duración</th><th class="n">Clips</th></tr>'
-                   f'</thead><tbody>{filas}</tbody>'
-                   + (f'<tfoot><tr><td>Total</td><td class="n">{_e(_peso(t["gb"]))}</td><td class="n">{_e(rsm.hms(t["seg"]))}</td>'
-                      f'<td class="n">{_num(t["clips"])}</td></tr></tfoot>' if len(dias) > 1 else "") + "</table></section>")
-    if "detalle_dias" in sec and dias:
-        out += _detalle_dias(datos)
-    # ---- avance del proyecto ----
-    if "avance" in sec and g["gb"]:
-        anillos = ""
-        if g["dias_previstos"]:
-            anillos += _svg_anillo(g["dias"] / g["dias_previstos"], f'{g["dias"]}/{g["dias_previstos"]}', "días")
-        if g["espacio_previsto_gb"]:
-            anillos += _svg_anillo(g["gb"] / g["espacio_previsto_gb"], f'{g["gb"] / g["espacio_previsto_gb"] * 100:.0f} %', "espacio")
-        lista = [("Total días de rodaje", str(g["dias_previstos"]) if g["dias_previstos"] else "—"), ("Días rodados", str(g["dias"])),
-                 ("Promedio por día", _peso(g["promedio_gb"])), ("Espacio utilizado OCF", f'{g["gb"]:,.2f} GB'),
-                 ("Espacio aprox. total", f'{g["espacio_previsto_gb"]:,.2f} GB' if g["espacio_previsto_gb"] else "—")]
-        sem_ = f' · {_e(nombre_semana(g["semana"]))}' if g["semana"] else ""
-        out.append(f'<section class="tj bloque"><h2>Avance del proyecto <small>hasta el {_e(texto_fecha(datos["hasta"]))}{sem_}</small></h2>'
-                   f'<div class="avance2"><div class="anillos">{anillos}</div><dl>'
-                   + "".join(f"<dt>{_e(a)}</dt><dd>{_e(b)}</dd>" for a, b in lista) + "</dl></div></section>")
-    if "prevision" in sec and g["gb"] and (g["dias_previstos"] or g["espacio_previsto_gb"]):
-        faltan_d = max(0, (g["dias_previstos"] or 0) - g["dias"]) if g["dias_previstos"] else None
-        al_ritmo = faltan_d * g["promedio_gb"] if faltan_d is not None else None
-        faltan_gb = max(0.0, g["espacio_previsto_gb"] - g["gb"]) if g["espacio_previsto_gb"] else None
-        lista = [("Días por rodar", str(faltan_d) if faltan_d is not None else "—"),
-                 ("Espacio que falta según lo previsto", _peso(faltan_gb) if faltan_gb is not None else "—"),
-                 ("Espacio que falta al ritmo actual", _peso(al_ritmo) if al_ritmo is not None else "—"),
-                 ("Total al terminar (al ritmo actual)", _peso(g["gb"] + al_ritmo) if al_ritmo is not None else "—")]
-        out.append('<section class="tj bloque"><h2>Lo que falta <small>según el promedio de los días rodados</small></h2><div class="avance2"><dl>'
-                   + "".join(f"<dt>{_e(a)}</dt><dd>{_e(b)}</dd>" for a, b in lista) + "</dl></div></section>")
-    if "linea_proyecto" in sec and g["gb"] and len(g["filas"]) > 1:
-        out.append('<section class="tj bloque"><h2>Todo el proyecto, día por día <small>GB de cada día; en verde, los días de este reporte</small></h2>'
-                   + _svg_linea(g["filas"], datos["elegidos"]) + "</section>")
-    if "tabla_proyecto" in sec and g["gb"] and len(g["filas"]) > 1:
-        out.append('<section class="tj"><h2>Almacenamiento y tiempo rodado <small>todos los días del proyecto</small></h2>'
-                   + _tabla_dias(g["filas"], datos["elegidos"]) + "</section>")
-    # ---- formato ----
-    if "formato" in sec and datos["formato"]:
-        out.append('<div class="formato bloque"><span class="f-t">Formato de grabación</span>'
-                   + "".join(f'<span class="chip"><i>{_e(k)}</i> {_e(v)}</span>' for k, v in datos["formato"]) + "</div>")
-    if "tarjetas" in sec:
-        out += _detalle_tarjetas(datos)
+    B, K = _bloques(datos)
+    escondido = lambda sid: "" if sid in sec else " hidden"
+    cifras_puestas = False
+    for sid in orden_de(orden):
+        if sid in FAMILIA_CIFRAS:
+            if cifras_puestas:
+                continue
+            cifras_puestas = True
+            fam = [x for x in orden_de(orden) if x in FAMILIA_CIFRAS and x in K and (vista_previa or x in sec)]
+            if fam:
+                visibles = any(x in sec for x in fam)
+                out.append(f'<div class="kpis bloque" data-sec-grupo="cifras"{"" if visibles else " hidden"}>'
+                           + "".join(f'<div class="kpi-g" data-sec="{x}"{escondido(x)}>{K[x]}</div>' for x in fam) + "</div>")
+            continue
+        if sid in B and (vista_previa or sid in sec):
+            out.append(f'<div class="sec-b" data-sec="{sid}"{escondido(sid)}>{B[sid]}</div>')
     return out
 
 
@@ -1334,7 +1352,7 @@ def titulo_grande(titulo):
     return t[:1].upper() + t[1:]
 
 
-def a_html(datos, modo="claro", logos=None, barra=True, completo=False, secciones=None):
+def a_html(datos, modo="claro", logos=None, barra=True, completo=False, secciones=None, orden=None, vista_previa=False):
     """La página del reporte. `modo`: «claro» u «oscuro» (se puede cambiar después con los botones de arriba, que no salen al imprimir).
     `logos`: {"claro": src, "oscuro": src} (data: URI o ruta); sin logos, se pone el nombre FilmFlow en texto.
     `barra`: los botones de arriba (Claro/Oscuro/Imprimir); se quitan para hacer el PDF.
@@ -1353,7 +1371,7 @@ def a_html(datos, modo="claro", logos=None, barra=True, completo=False, seccione
     else:
         logo = '<b style="font-size:20px;letter-spacing:3px;color:var(--verde)">FILMFLOW</b>'
     out.append('<div class="hoja plano">')
-    out += _pagina_resumen(datos, logo, completo, secciones)
+    out += _pagina_resumen(datos, logo, completo, secciones, orden, vista_previa)
     fuente = {"FO-06": "estatus de tarjetas (FO-06)", "FO-07": "estadístico (FO-07)"}.get(datos["fuente"], "tus hojas")
     out.append(f'<footer><span>Estadístico FilmFlow · datos de tu {_e(fuente)} · 1 TB = 1.000 GB</span>'
                f'<span>{_e(datos.get("proyecto_bonito") or datos["proyecto"])}</span></footer></div>')
