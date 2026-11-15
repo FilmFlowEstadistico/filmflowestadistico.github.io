@@ -248,7 +248,7 @@ async function llamar(nombre, p = {}) {
   return out.r;
 }
 // «Silenciosas»: no ponen nada en pantalla mientras trabajan. «Bloqueantes»: tapan la pantalla (escriben o tardan). El resto: barra de progreso arriba.
-const SILENCIOSAS = new Set(["reporte_seccion", "reporte_orden", "reporte_modo_rapido", "reporte_nombre", "marcar", "marcar_seg", "alternar_vista", "mas_hallazgos", "decision", "casilla", "unidad", "correo_prefijo", "cancelar_formulario",
+const SILENCIOSAS = new Set(["resumen_panel", "reporte_seccion", "reporte_orden", "reporte_modo_rapido", "reporte_nombre", "marcar", "marcar_seg", "alternar_vista", "mas_hallazgos", "decision", "casilla", "unidad", "correo_prefijo", "cancelar_formulario",
   "conectar_cancelar", "importar_cancelar", "mover_rollo", "quitar_rollo", "editar_rollo", "agregar_rollo", "renombrar_pedir", "nuevo_pedir", "eliminar_proyecto",
   "quitar_estadistico", "quitar_estatus", "estatus_principal", "ir", "corregir_cruce", "corregir_errores", "escribir", "conectar_abrir"]);
 const TEXTO_OCUPADO = { revisar: "Leyendo el PDF y tus hojas de Google…", escribir_ok: "Escribiendo en tus hojas y comprobándolas…",
@@ -709,6 +709,7 @@ const JS = {
   descanso_min(el) { guardar("ff-descanso", el.dataset.v); pintarDescanso(); toast(el.dataset.v === "0" ? "Descanso: nunca" : "Descanso tras " + el.textContent); },
   descansar() { mostrarPortada("descanso"); },
   buscar_version() { revisarVersion(true); },
+  abrir_descargas() { if (MAC) mac("abrir", { url: URL_DESCARGAS }).catch(() => {}); else window.open(URL_DESCARGAS, "_blank", "noopener"); },
   async compartir_descarga() {
     try { if (navigator.share) { await navigator.share({ title: "Estadístico FilmFlow", text: "Instala la app Estadístico FilmFlow (Mac y celular):", url: URL_DESCARGAS }); return; } } catch (e) { if (e && e.name === "AbortError") return; }
     try { await navigator.clipboard.writeText(URL_DESCARGAS); toast("Copié el enlace de descarga"); } catch (e) { toast(URL_DESCARGAS); }
@@ -774,7 +775,7 @@ async function pintarVista(html) {
                        .replace("LOGO_OSCURO", await logoComoDato("assets/logo_filmflow_oscuro.png"));
   if (conLogos === vistaHtml && fr.dataset.lista) { ajustarVista(); return; }
   vistaHtml = conLogos;
-  fr.onload = () => { fr.dataset.lista = "1"; sincronizarVista(); prepararAsasVista(); ajustarVista(); setTimeout(ajustarVista, 300); };
+  fr.onload = () => { fr.dataset.lista = "1"; sincronizarVista(); prepararAsasVista(); prepararNombreVista(); ajustarVista(); setTimeout(ajustarVista, 300); };
   fr.srcdoc = conLogos;
   if (!caja.dataset.vigia && window.ResizeObserver) { caja.dataset.vigia = "1"; new ResizeObserver(ajustarVista).observe(caja); }
 }
@@ -785,27 +786,45 @@ function sincronizarVista() {
     const el = d.querySelector(`[data-sec="${sw.dataset.sec}"]`); if (el) el.hidden = !sw.checked;
   });
   d.querySelectorAll("[data-sec-grupo]").forEach((g) => { g.hidden = ![...g.querySelectorAll("[data-sec]")].some((x) => !x.hidden); });
-  vista.querySelectorAll("input.rep-in").forEach((x) => nombreEnVista(x));
 }
-// El nombre del reporte escrito a mano: la portada (y el pie) de la vista previa cambian mientras escribes.
-function nombreEnVista(inp) {
-  const d = docVista(); if (!d) return;
-  const txt = inp.value.trim() || inp.placeholder;
-  if (inp.dataset.nombre === "titulo") { const h = d.querySelector(".p-titulo"); if (h) h.textContent = txt; }
-  else {
-    const p = d.querySelector(".p-proyecto"); if (p) p.textContent = txt;
-    const pie = d.querySelector(".hoja > footer span:last-child"); if (pie) pie.textContent = txt;
+// El nombre del reporte se escribe EN la vista previa: el nombre del proyecto y el título de la portada se tocan y se cambian ahí
+// mismo (vacío = el sugerido). Se guarda solo, sin volver a dibujar la pantalla.
+const nombreEspera = {};
+function prepararNombreVista() {
+  const d = docVista(), caja = vista.querySelector(".rep-vista"); if (!d || !caja) return;
+  const campos = { proyecto: d.querySelector(".p-proyecto"), titulo: d.querySelector(".p-titulo") };
+  const sug = { proyecto: caja.dataset.sugProy || "", titulo: caja.dataset.sugTit || "" };
+  if (!d.getElementById("ff-nombre")) {
+    const st = d.createElement("style"); st.id = "ff-nombre";
+    st.textContent = `.ff-editable{border-radius:8px;outline:1.5px dashed transparent;outline-offset:4px;cursor:text;transition:outline-color .15s,background .15s}
+.ff-editable:hover{outline-color:rgba(142,142,147,.7)}
+.ff-editable:focus{outline:2px solid #1fbf6a;background:rgba(31,191,106,.08)}
+@media print{.ff-editable{outline:0!important;background:none!important}}`;
+    d.head.appendChild(st);
   }
+  const pie = () => d.querySelector(".hoja > footer span:last-child");
+  Object.entries(campos).forEach(([clave, el]) => {
+    if (!el || el.dataset.ffListo) return;
+    el.dataset.ffListo = "1";
+    try { el.contentEditable = "plaintext-only"; } catch (e) { el.contentEditable = "true"; }
+    if (el.contentEditable !== "plaintext-only") el.contentEditable = "true";
+    el.spellcheck = false; el.classList.add("ff-editable");
+    el.title = clave === "titulo" ? "Toca para cambiar el título del reporte (si lo borras, vuelve el sugerido)" : "Toca para cambiar el nombre del proyecto en el reporte (si lo borras, vuelve el sugerido)";
+    const guardarYa = () => { const v = el.textContent.trim(); api("reporte_nombre", { [clave]: v === sug[clave] ? "" : v }); };
+    el.addEventListener("input", () => {
+      if (clave === "proyecto" && pie()) pie().textContent = el.textContent.trim() || sug.proyecto;
+      clearTimeout(nombreEspera[clave]); nombreEspera[clave] = setTimeout(guardarYa, 400);
+    });
+    el.addEventListener("focus", () => {            // al tocarlo queda todo seleccionado: lo que escribas lo reemplaza (como al renombrar un archivo)
+      setTimeout(() => { try { const r = d.createRange(); r.selectNodeContents(el); const sel = d.defaultView.getSelection(); sel.removeAllRanges(); sel.addRange(r); } catch (e) {} }, 0);
+    });
+    el.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); el.blur(); } });
+    el.addEventListener("blur", () => {
+      if (!el.textContent.trim()) { el.textContent = sug[clave]; if (clave === "proyecto" && pie()) pie().textContent = sug.proyecto; }
+      clearTimeout(nombreEspera[clave]); guardarYa();
+    });
+  });
 }
-const nombreEspera = {};                  // una espera por campo (si escribes en los dos seguido, se guardan los dos)
-document.addEventListener("input", (e) => {
-  const inp = e.target.closest && e.target.closest("input.rep-in"); if (!inp) return;
-  nombreEnVista(inp);
-  const campo = inp.dataset.nombre;
-  clearTimeout(nombreEspera[campo]);
-  nombreEspera[campo] = setTimeout(() => api("reporte_nombre", { [campo]: inp.value }), 350);
-});
-document.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.matches && e.target.matches("input.rep-in")) e.target.blur(); });
 // ---- Mover las partes del PDF en la misma vista previa: cada parte lleva al lado sus puntitos ⋮⋮; se arrastran y las demás se
 // corren con animación (como los rollos en Ajustes). Al soltar se guarda el orden (sin volver a dibujar la pantalla).
 const ASA_SVG = '<svg viewBox="0 0 12 20" width="16" height="26" aria-hidden="true">' +
@@ -970,6 +989,7 @@ document.addEventListener("click", async (e) => {
 });
 document.addEventListener("change", async (e) => {
   const t = e.target;
+  if (t.matches('input.sw[data-panel]')) { api("resumen_panel", { id: t.dataset.panel, valor: t.checked }); return; }
   if (t.matches('input.sw[data-sec]')) { prenderSeccion(t.dataset.sec, t.checked); api("reporte_seccion", { id: t.dataset.sec, valor: t.checked }); return; }
   if (t.matches('input[type="checkbox"][data-a]')) { mostrar(await api(t.dataset.a, { ...JSON.parse(t.dataset.p || "{}"), valor: t.checked })); return; }
   if (t.matches('[data-form="tipo"]')) alternarTipo(t.closest("form"));
@@ -1226,6 +1246,7 @@ function pintarVersion() {
     cont.innerHTML = `<section class="tarjeta"><p>Versión instalada: <b>${(macVersion && macVersion.actual) || MI_VERSION.app || "—"}</b> <span class="sub">· app del Mac</span></p>
       <p class="sub">${estadoMac}</p>
       <div class="barra-mini llena"><button class="btn" data-js="buscar_version" title="Preguntar ahora mismo si hay una versión nueva de la app del Mac.">Buscar actualizaciones</button>
+      <button class="btn" data-js="abrir_descargas" title="Abre la página de descargas de la app (instaladores del Mac y app del celular).">Abrir la página de descargas</button>
       <button class="btn" data-js="compartir_descarga" title="Mandar a otro data manager el enlace para instalar la app (Mac y celular).">Compartir enlace de descarga</button></div></section>`;
     return;
   }
@@ -1238,7 +1259,8 @@ function pintarVersion() {
     <p class="sub">${estado}</p>
     <p class="sub">La app se actualiza sola: al abrirla y cada rato revisa si hay una versión nueva y la instala sin borrar tus proyectos ni tu sesión.</p>
     <div class="barra-mini llena"><button class="btn" data-js="buscar_version" title="Preguntar ahora mismo si hay una versión nueva de la app.">Buscar actualizaciones</button>
-    <button class="btn" data-js="compartir_descarga" title="Mandar a otro data manager el enlace para instalar la app (Mac y celular).">Compartir enlace de descarga</button></div></section>`;
+    <button class="btn" data-js="abrir_descargas" title="Abre la página de descargas de la app (instaladores del Mac y app del celular).">Abrir la página de descargas</button>
+      <button class="btn" data-js="compartir_descarga" title="Mandar a otro data manager el enlace para instalar la app (Mac y celular).">Compartir enlace de descarga</button></div></section>`;
 }
 // ---------- arranque ----------
 async function procesarInvitacion() {

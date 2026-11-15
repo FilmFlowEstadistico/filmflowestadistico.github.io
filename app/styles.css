@@ -489,9 +489,6 @@ input.rep-in::placeholder{color:var(--texto3,#8e8e93);opacity:1}
 /* ---- Pantallas grandes (computador, iPad acostado): más ancho y las tarjetas del Resumen en dos columnas ---- */
 @media (min-width:1200px) and (min-height:600px){
   main{max-width:1380px}
-  #vista[data-pagina="resumen"]{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:18px;align-items:start}
-  #vista[data-pagina="resumen"]>*{grid-column:1/-1;min-width:0}
-  #vista[data-pagina="resumen"]>section.tarjeta{grid-column:auto}
   #vista[data-pagina="registrar"],#vista[data-pagina="correo"],#vista[data-pagina="hojas"],#vista[data-pagina="ajustes"],#vista[data-pagina="app"]{max-width:1080px}
   .rep-grid{grid-template-columns:minmax(360px,440px) minmax(0,1fr);gap:22px}
   .rep-cab{display:flex;align-items:flex-end;gap:18px}
@@ -509,3 +506,24 @@ input.rep-in::placeholder{color:var(--texto3,#8e8e93);opacity:1}
   .rep-nombre .nota{grid-column:1/-1}
   input.rep-in.grande,.rep-cab input.rep-in.grande{font-size:18px}
 }
+
+/* ---- Resumen en pantallas anchas: las tarjetas en dos columnas que se llenan como un mosaico (sin huecos); lo demás, a todo el ancho ---- */
+@media (min-width:1000px) and (min-height:560px){
+  #vista[data-pagina="resumen"]{column-count:2;column-gap:18px}
+  #vista[data-pagina="resumen"]>*{column-span:all;break-inside:avoid}
+  #vista[data-pagina="resumen"]>.cifras~section.tarjeta{column-span:none;display:inline-block;width:100%;vertical-align:top}
+  #vista[data-pagina="resumen"] .cifras{grid-template-columns:repeat(4,minmax(0,1fr))}
+  #vista[data-pagina="resumen"] .metrica.ancha{grid-column:1/-1}
+  #vista[data-pagina="resumen"]>.cifras~section.tarjeta .tabla{font-size:13px}
+  #vista[data-pagina="resumen"]>.cifras~section.tarjeta .tabla th,#vista[data-pagina="resumen"]>.cifras~section.tarjeta .tabla td{padding:7px 5px}
+}
+@media (min-width:1000px) and (max-width:1300px) and (min-height:560px){
+  #vista[data-pagina="resumen"]>.cifras~section.tarjeta .tabla{font-size:12px}
+  #vista[data-pagina="resumen"]>.cifras~section.tarjeta .tabla th,#vista[data-pagina="resumen"]>.cifras~section.tarjeta .tabla td{padding:6px 3px}
+}
+.rep-periodo{margin:0!important}
+.rep-periodo b{font-weight:700;color:var(--texto)}
+/* textos solo del Mac o solo de la web */
+html.en-mac [data-solo="web"],html:not(.en-mac) [data-solo="mac"]{display:none}
+.kv2{display:flex;justify-content:space-between;align-items:baseline;gap:14px;padding:9px 0;border-bottom:1px solid var(--separador)}
+.kv2:last-child{border-bottom:0}.kv2 b{font-weight:650;white-space:nowrap}

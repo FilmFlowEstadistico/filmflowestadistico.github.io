@@ -376,6 +376,59 @@ def html_errores_escritura(m):
     return H.plegable("res-err", "Errores de escritura en el estatus", c, chip_, "FO-06", abierto=bool(E["msg_err"]) and not errores)
 
 
+PANELES_RESUMEN = [            # lo que puede salir en el Resumen (Ajustes de la app → «Qué sale en el Resumen»)
+    ("reporte", "Botón «Reporte»", "El acceso rápido para sacar el reporte en PDF."),
+    ("revision", "Revisión de las hojas", "Rollos por revisar, errores de escritura y si el estatus y el estadístico cuadran."),
+    ("cifras", "Cifras principales", "Total grabado, días rodados, cámaras, clips y duración."),
+    ("mas_cifras", "Más cifras", "Tarjetas, sonido y el día con más y con menos material."),
+    ("almacenamiento", "Almacenamiento por cámara", "Cuánto lleva cada cámara (gráfica de anillo y barras)."),
+    ("rollos", "Rollo en el que va cada cámara", "El último rollo, # Mag y día de cada cámara."),
+    ("volumen", "Volumen por día", "La gráfica de TB de cada día con el promedio."),
+    ("semanas", "Resumen por semana", "Días, total, promedio, duración y clips de cada semana del proyecto."),
+    ("ultimos", "Últimos días", "Los últimos 7 días rodados con su tamaño, duración, clips y tarjetas."),
+    ("avance", "Avance según tu estadístico", "Días y espacio rodados frente a lo previsto."),
+    ("falta", "Lo que falta", "Días y espacio que faltan, y cuánto se grabaría al ritmo actual."),
+    ("tipos", "Material por tipo", "Cámaras, sonido, drones… cada uno con su tamaño, clips y tarjetas."),
+    ("rental", "Equipo y rental de cada cámara", "Modelo, rental y tarjetas de cada cámara."),
+    ("equipo", "Equipo y formato de grabación", "Producción, dirección, DOP… y el formato (lo que dice tu estadístico)."),
+    ("avisos", "Avisos", "Lo que la app encontró raro al leer tus hojas."),
+]
+
+
+def _archivo_paneles():
+    return rc.CARPETA / "resumen_paneles.json"
+
+
+def paneles_ocultos():
+    try:
+        return set(json.loads(_archivo_paneles().read_text(encoding="utf-8")).get("ocultos") or [])
+    except Exception:
+        return set()
+
+
+def resumen_panel(p):
+    """Prende o apaga una parte del Resumen (Ajustes de la app). Solo se guarda: la pantalla ya cambió el interruptor."""
+    ocultos = paneles_ocultos()
+    pid = str(p.get("id") or "")
+    if pid in {x[0] for x in PANELES_RESUMEN}:
+        (ocultos.discard if p.get("valor") else ocultos.add)(pid)
+        try:
+            rc.CARPETA.mkdir(parents=True, exist_ok=True)
+            _archivo_paneles().write_text(json.dumps({"ocultos": sorted(ocultos)}), encoding="utf-8")
+        except OSError:
+            pass
+    return {"guardado": True}
+
+
+def html_paneles_resumen():
+    ocultos = paneles_ocultos()
+    filas = "".join(
+        f'<label class="sec-op" title="{esc(expl)}"><span class="sec-txt"><b>{esc(nombre)}</b><small>{esc(expl)}</small></span>'
+        f'<input type="checkbox" class="sw" data-panel="{pid}"{"" if pid in ocultos else " checked"} aria-label="{esc(nombre)}"></label>'
+        for pid, nombre, expl in PANELES_RESUMEN)
+    return H.tarjeta('<p class="sub">Prende o apaga lo que quieres ver en el Resumen. Vale para todos tus proyectos.</p>' + filas)
+
+
 def html_resumen():
     m = E["resumen"]
     if m is None:
@@ -401,23 +454,28 @@ def html_resumen():
     camaras_v = vista["camaras"] if vista else m["camaras"]
     serie_v = vista["serie"] if vista else m["serie"]
     out = []
+    ocultos = paneles_ocultos()
+
+    def pon(pid, html):
+        if html and (pid is None or pid not in ocultos):
+            out.append(html)
     if m["serie"]:
-        out.append(f'<div class="reporte-abrir"><button class="btn reporte-btn" {a("reporte_abrir")}><span class="ico">📄</span>'
+        pon("reporte", f'<div class="reporte-abrir"><button class="btn reporte-btn" {a("reporte_abrir")}><span class="ico">📄</span>'
                    '<span><b>Reporte</b><small>Un día, una semana o las fechas que quieras, en PDF</small></span>'
                    '<span class="flecha">›</span></button></div>')
     repetidos = [x for x in m["avisos"] if x[1].startswith(("Rollo repetido", "Revisa el último rollo"))]
     if repetidos:
         c = ('<p class="sub">Cada rollo de una cámara debe tener un número único, y el último rollo debería ser a la vez el de número '
              'más alto y el de fecha más reciente. Corrígelo en tu hoja de estatus de tarjetas.</p>')
-        out.append(H.plegable("res-rollos", "Rollos por revisar", c + "".join(H.aviso("aviso", x) for _t, x in repetidos),
+        pon("revision", H.plegable("res-rollos", "Rollos por revisar", c + "".join(H.aviso("aviso", x) for _t, x in repetidos),
                               H.chip(f"{len(repetidos)} por revisar", "aviso"), "número y fecha"))
     if m.get("errores_escritura") or E["msg_err"]:
-        out.append(html_errores_escritura(m))
+        pon("revision", html_errores_escritura(m))
     if m.get("cruce") is not None or m.get("cruce_error"):
-        out.append(html_incongruencias(m.get("cruce"), m.get("cruce_error"), "res", E["corr_res"], mensajes=E["msg_corr"],
+        pon("revision", html_incongruencias(m.get("cruce"), m.get("cruce_error"), "res", E["corr_res"], mensajes=E["msg_corr"],
                                        accion=("Corregir las elegidas", "corregir_cruce")))
     if len(unidades) > 1:
-        out.append(H.segmentado([("todo", "Todo")] + [(u["id"], u["nombre"]) for u in unidades], vista_id, "unidad"))
+        pon(None, H.segmentado([("todo", "Todo")] + [(u["id"], u["nombre"]) for u in unidades], vista_id, "unidad"))
     letras = " · ".join(t["letras"]) or "—"
     cifras = [("", "Total grabado", f"{t['tb']:,.2f} TB", f"promedio {rsm.texto_peso(t['promedio_gb'])} por día", True),
               ("", "Días rodados", f"{t['dias']}", (f"de {t['dias_previstos']} previstos" if t["dias_previstos"] else ""), False),
@@ -426,7 +484,24 @@ def html_resumen():
                ("video" + (f" · +{t['clips_audio']:,} audio" if t.get("clips_audio") else "")) if t["clips"] else "", False),
               ("", "Duración", f"{int(t['seg']) // 3600:,} h" if t["seg"] else "—",
                ("video" + (f" · audio {int(t['seg_audio']) // 3600:,} h" if t.get("seg_audio") else "")) if t["seg"] else "", False)]
-    out.append('<div class="cifras">' + "".join(H.metrica(*c) for c in cifras) + "</div>")
+    pon("cifras", '<div class="cifras">' + "".join(H.metrica(*c) for c in cifras) + "</div>")
+    try:                                   # los mismos datos del reporte, de todo el proyecto (o de la unidad que estás mirando)
+        dr = rpt.armar(m, set(rpt.rodados(m, vista_id if vista else None)), vista_id if vista else None, modo="dias")
+        dr = dr if dr["dias"] else None
+    except Exception:
+        dr = None
+    if dr:
+        tr = dr["totales"]
+        gb_son = sum(c["gb"] for c in dr["camaras"] if c["tipo"] == "sonido")
+        mas = [("", "Tarjetas", f"{tr['tarjetas']:,}" if tr["tarjetas"] else "—", f"{tr['equipos']} equipos de grabación", False),
+               ("", "Sonido", rsm.texto_peso(gb_son) if gb_son else "—",
+                (f"{tr['clips_audio']:,} clips · {rsm.hms(tr['seg_audio'])}" if tr["clips_audio"] else ""), False)]
+        if tr["mejor"] and tr["dias"] > 1:
+            mas += [("", "Día con más material", rsm.texto_peso(tr["mejor"]["gb"]),
+                     f"{tr['mejor']['dia']} · {tr['mejor']['fecha']:%d/%m}" if tr["mejor"].get("fecha") else tr["mejor"]["dia"], False),
+                    ("", "Día con menos material", rsm.texto_peso(tr["menor"]["gb"]),
+                     f"{tr['menor']['dia']} · {tr['menor']['fecha']:%d/%m}" if tr["menor"].get("fecha") else tr["menor"]["dia"], False)]
+        pon("mas_cifras", '<div class="cifras">' + "".join(H.metrica(*c) for c in mas) + "</div>")
     con_datos = [c for c in m["camaras"] if c["gb"] > 0]
     colores = rpt.colores_de_camaras(m["camaras"], tema.PALETA_ROLLOS)       # el color de cada rollo tal cual (el de la hoja o el elegido)
     por_nombre = {c["nombre"]: colores[i] for i, c in enumerate(m["camaras"])}
@@ -445,7 +520,7 @@ def html_resumen():
         cuerpo = barras_de(camaras_v)
     cuerpo = '<div class="centro">' + H.dona([(c["gb"], color_nombre(c)) for c in (vista["camaras"] if vista else con_datos) if c["gb"] > 0],
                                              f"{t['tb']:,.1f} TB", "en total" if not vista else vista["nombre"]) + "</div>" + cuerpo
-    out.append(H.tarjeta(cuerpo, "Almacenamiento por cámara" + (f" · {vista['nombre']}" if vista else "")))
+    pon("almacenamiento", H.tarjeta(cuerpo, "Almacenamiento por cámara" + (f" · {vista['nombre']}" if vista else "")))
     varias = len(unidades) > 1
     nombre_unidad = {u["pestana"]: u["nombre"] for u in unidades}
     filas_c = []
@@ -462,7 +537,7 @@ def html_resumen():
                                      "Sin material" if c.get("sin_material") else rsm.texto_peso(c["gb"]), c["nombre"]))
     nota = ('<p class="nota">Toca una cámara para ver todos sus datos. «Rollo actual», «Mag», «Unidad» y «Día» son el más reciente de todo el proyecto (el día de calendario más '
             'nuevo entre todas las unidades). Clips, duración y volumen suman todas las unidades.</p>') if varias else ""
-    out.append(H.tarjeta('<div class="cam-lista">' + "".join(filas_c) + "</div>" + nota, "Rollo en el que va cada cámara" + (" · todo el proyecto" if varias else "")))
+    pon("rollos", H.tarjeta('<div class="cam-lista">' + "".join(filas_c) + "</div>" + nota, "Rollo en el que va cada cámara" + (" · todo el proyecto" if varias else "")))
     if serie_v:
         mejor, ultimo = t["mejor"], t["ultimo"]
         ultimos = serie_v[-45:]
@@ -473,7 +548,19 @@ def html_resumen():
         fecha_u = ultimo["fecha"].strftime("%d/%m/%Y") if ultimo["fecha"] else "—"
         cuerpo += (f'<p class="nota">Último día registrado: {esc(ultimo["dia"])} · {fecha_u} · {esc(rsm.texto_peso(ultimo["gb"]))}'
                    + (f"  ·  mostrando los últimos {len(ultimos)} de {len(serie_v)} días" if len(serie_v) > len(ultimos) else "") + "</p>")
-        out.append(H.tarjeta(cuerpo, "Volumen por día"))
+        pon("volumen", H.tarjeta(cuerpo, "Volumen por día"))
+    if dr and len(dr["por_semana"]) > 1:
+        filas_s = [[{"texto": w["nombre"], "negrita": True}, str(w["dias"]), rsm.texto_peso(w["gb"]),
+                    rsm.texto_peso(w["gb"] / w["dias"]) if w["dias"] else "—", rsm.hms(w["seg"]), f"{w['clips']:,}" if w.get("clips") else "—"]
+                   for w in dr["por_semana"]]
+        pon("semanas", H.tarjeta(H.tabla([("Semana", "i"), ("Días", "e"), ("Total", "e"), ("Promedio", "e"), ("Duración", "e"), ("Clips", "e")], filas_s),
+                                 "Resumen por semana"))
+    if dr:
+        ult = dr["dias"][-7:][::-1]
+        filas_u = [[{"texto": d_["dia"], "negrita": True}, d_["fecha"].strftime("%d/%m") if d_.get("fecha") else "—", rsm.texto_peso(d_["gb"]),
+                    rsm.hms(d_["seg"]), f"{d_['clips']:,}" if d_.get("clips") else "—", str(d_.get("tarjetas") or "—")] for d_ in ult]
+        pon("ultimos", H.tarjeta(H.tabla([("Día", "i"), ("Fecha", "i"), ("Total", "e"), ("Duración", "e"), ("Clips", "e"), ("Tarjetas", "e")], filas_u),
+                                 f"Últimos {len(ult)} días"))
     if vista is not None:
         t = dict(t, dias_previstos=vista.get("dias_previstos"), espacio_previsto_gb=vista.get("espacio_previsto_gb"))
     if (vista is None or vista.get("estadistico")) and (t["dias_previstos"] or t["espacio_previsto_gb"]):
@@ -490,7 +577,29 @@ def html_resumen():
         sem = (vista.get("semana") if vista else None) or m["semana"]
         if sem:
             cuerpo += f'<p class="nota">{esc(sem)}</p>'
-        out.append(H.tarjeta(cuerpo, "Avance según tu estadístico"))
+        pon("avance", H.tarjeta(cuerpo, "Avance según tu estadístico"))
+    g_ = dr["general"] if dr else None
+    if g_ and g_.get("gb") and (g_.get("dias_previstos") or g_.get("espacio_previsto_gb")):
+        faltan_d = max(0, (g_["dias_previstos"] or 0) - g_["dias"]) if g_.get("dias_previstos") else None
+        al_ritmo = faltan_d * g_["promedio_gb"] if faltan_d is not None else None
+        faltan_gb = max(0.0, g_["espacio_previsto_gb"] - g_["gb"]) if g_.get("espacio_previsto_gb") else None
+        kv = [("Días que faltan", str(faltan_d) if faltan_d is not None else "—"),
+              ("Espacio que falta (según lo previsto)", rsm.texto_peso(faltan_gb) if faltan_gb is not None else "—"),
+              ("Lo que se grabaría al ritmo actual", rsm.texto_peso(al_ritmo) if al_ritmo is not None else "—"),
+              ("Total al terminar (al ritmo actual)", rsm.texto_peso(g_["gb"] + al_ritmo) if al_ritmo is not None else "—")]
+        pon("falta", H.tarjeta("".join(f'<div class="kv2"><span class="sub">{esc(k)}</span><b>{esc(v)}</b></div>' for k, v in kv),
+                               "Lo que falta", '<span class="nota">según el promedio de los días rodados</span>'))
+    if dr and len(dr["tipos"]) > 1:
+        filas_t = [[{"texto": g2["nombre"], "negrita": True}, rsm.texto_peso(g2["gb"]), f"{g2['clips']:,}" if g2["clips"] else "—",
+                    str(g2["tarjetas"] or "—"), rsm.hms(g2["seg"]) if g2["seg"] else "—", str(g2["equipos"])] for g2 in dr["tipos"]]
+        pon("tipos", H.tarjeta(H.tabla([("Tipo", "i"), ("Tamaño", "e"), ("Clips", "e"), ("Tarjetas", "e"), ("Duración", "e"), ("Equipos", "e")], filas_t),
+                               "Material por tipo"))
+    cams_r = [c for c in (dr["camaras"] if dr else []) if c["gb"] > 0 and (c.get("modelo") or c.get("rental"))]
+    if cams_r:
+        filas_r = [[{"texto": c["nombre"], "punto": color_nombre(c), "negrita": True}, c.get("modelo") or "—", c.get("rental") or "—",
+                    str(c.get("tarjetas") or "—"), rsm.texto_peso(c["gb"])] for c in cams_r]
+        pon("rental", H.tarjeta(H.tabla([("Cámara", "i"), ("Modelo", "i"), ("Rental", "i"), ("Tarjetas", "e"), ("Tamaño", "e")], filas_r),
+                                "Equipo y rental de cada cámara"))
 
     def equipo_html(equipo, formato, rotulo=""):
         if not (equipo or formato):
@@ -509,12 +618,12 @@ def html_resumen():
         else:
             eq_html = equipo_html(m["equipo"], m["formato"])
     if eq_html:
-        out.append(H.plegable("res-equipo", "Equipo y formato de grabación", eq_html, "", "lo que dice tu estadístico"))
+        pon("equipo", H.plegable("res-equipo", "Equipo y formato de grabación", eq_html, "", "lo que dice tu estadístico"))
     for tipo, texto in m["avisos"]:
         if not texto.startswith(("Rollo repetido", "Revisa el último rollo")):
-            out.append(H.aviso(tipo, texto))
+            pon("avisos", H.aviso(tipo, texto))
     fuentes = {"FO-06": "estatus de tarjetas (FO-06)", "FO-07": "estadístico (FO-07)"}
-    out.append(f'<p class="nota pie">Fuente: {fuentes.get(m["fuente"], "—")}. Esta pestaña solo lee tus hojas; únicamente escribe si tú eliges corregir algo.  '
+    pon(None, f'<p class="nota pie">Fuente: {fuentes.get(m["fuente"], "—")}. Esta pestaña solo lee tus hojas; únicamente escribe si tú eliges corregir algo.  '
                'Unidades: GB decimales, 1 TB = 1.000 GB.</p>')
     return "".join(out)
 
@@ -634,19 +743,14 @@ def html_reporte(m):
     if datos and datos["dias"]:
         t = datos["totales"]
         rpt.poner_nombre(datos, r)
-        res += ('<div class="rep-nombre"><span class="nota">Así se llamará el reporte · toca para cambiarlo</span>'
-                f'<input class="rep-in" data-nombre="proyecto" value="{esc(datos["proyecto_bonito"] or datos["proyecto"])}" '
-                f'placeholder="{esc(datos["proyecto_sugerido"])}" maxlength="120" autocomplete="off" spellcheck="false" '
-                'title="Nombre del proyecto en la portada del reporte. Bórralo para volver al sugerido." aria-label="Nombre del proyecto en el reporte">'
-                f'<input class="rep-in grande" data-nombre="titulo" value="{esc(datos["titulo_grande"])}" '
-                f'placeholder="{esc(datos["titulo_sugerido"])}" maxlength="120" autocomplete="off" '
-                'title="Título del reporte (sale grande en verde). Bórralo para volver al sugerido." aria-label="Título del reporte"></div>'
-                f'<p class="sub">{esc(datos["periodo"])} · {t["dias"]} día{"s" if t["dias"] != 1 else ""} · {esc(rsm.texto_peso(t["gb"]))}</p>')
+        res += (f'<p class="sub rep-periodo"><b>{esc(datos["periodo"])}</b> · {t["dias"]} día{"s" if t["dias"] != 1 else ""} · {esc(rsm.texto_peso(t["gb"]))}</p>')
     else:
         res += H.aviso("aviso", "No hay material registrado en los días elegidos." if r["elegidos"] else "Elige los días en el calendario.")
     apariencia = '<p class="nota">Apariencia del PDF</p>' + H.segmentado([("claro", "Claro"), ("oscuro", "Oscuro")], r["modo"], "reporte_modo_rapido")
-    vista = ('<p class="nota">Arrastra los puntitos ⋮⋮ al lado de cada parte para cambiar su lugar en el PDF.</p>'
-             '<div class="rep-vista" aria-label="Vista previa del PDF (se desliza por dentro)"><div class="rep-lienzo"><iframe title="Vista previa del reporte" scrolling="no"></iframe></div></div>'
+    sug = (f' data-sug-proy="{esc(datos["proyecto_sugerido"])}" data-sug-tit="{esc(datos["titulo_sugerido"])}"' if datos and datos["dias"] else "")
+    vista = ('<p class="nota">Toca el nombre o el título del reporte para cambiarlo. Arrastra los puntitos ⋮⋮ al lado de cada parte para '
+             'cambiar su lugar en el PDF.</p>'
+             f'<div class="rep-vista"{sug} aria-label="Vista previa del PDF (se desliza por dentro)"><div class="rep-lienzo"><iframe title="Vista previa del reporte" scrolling="no"></iframe></div></div>'
              if datos and datos["dias"] else H.vacia("Sin vista previa", "Elige días con material para ver cómo queda el PDF."))
     # En el teléfono la pestaña va en tres pasos (uno a la vez, para no hacer una página larguísima); en pantalla ancha se ve todo junto
     pasos = ('<div class="rep-pasos segmentado" role="tablist">'
@@ -2323,10 +2427,13 @@ def pagina_app(p=None):
            H.tarjeta('<p class="sub">«Automático» sigue la apariencia de tu iPhone y cambia sola.</p><div class="segmentado">'
                      + "".join(f'<button class="seg" data-js="tema" data-v="{v}">{t}</button>' for v, t in (("auto", "Automático"), ("claro", "Claro"), ("oscuro", "Oscuro")))
                      + '</div>'),
+           H.grupo("Qué sale en el Resumen"), html_paneles_resumen(),
            H.grupo("Descanso"), '<div id="js-descanso"></div>',
            H.grupo("Actualizaciones"), '<div id="js-version"></div>',
-           '<p class="nota pie">Estadístico FilmFlow · versión para iPhone. La apariencia, el descanso y la sesión son solo de este teléfono; '
-           'tus proyectos se comparten con el Mac a través de tu cuenta de Google.</p>']
+           '<p class="nota pie" data-solo="web">Estadístico FilmFlow · versión para celular y web. La apariencia, el descanso y la sesión son solo de '
+           'este aparato; tus proyectos se comparten con tus otros equipos a través de tu cuenta de Google.</p>'
+           '<p class="nota pie" data-solo="mac">Estadístico FilmFlow · app del Mac. La apariencia y el descanso son solo de este Mac; tus proyectos '
+           'se comparten con el celular y tus otros equipos a través de tu cuenta de Google.</p>']
     return {"pagina": "app", "html": "".join(out)}
 
 
@@ -2740,7 +2847,7 @@ ACCIONES = {k: v for k, v in globals().items() if callable(v) and not k.startswi
     "mover_rollo", "elegir_proyecto", "renombrar_pedir", "renombrar_ok", "nuevo_pedir", "nuevo_ok", "nuevo_conectar", "eliminar_proyecto", "eliminar_ok",
     "correo_pdf", "correo_usar_registro", "correo_prefijo", "cuenta", "sincronizar", "sync_enlace", "nuevo_dia",
     "reporte_abrir", "reporte_cerrar", "reporte_tipo", "reporte_tocar", "reporte_mes", "reporte_rango", "reporte_unidad", "reporte_modo", "reporte_contenido",
-    "reporte_crear", "reporte_semana", "reporte_semanas", "reporte_preset", "reporte_seccion", "reporte_orden", "reporte_modo_rapido", "reporte_nombre", "color_en_hojas_ok", "equipo_agregar", "equipo_cancelar", "equipo_guardar", "equipo_dar_acceso", "equipo_quitar", "equipo_quitar_ok", "unirse", "unirse_pedir"}}
+    "reporte_crear", "reporte_semana", "reporte_semanas", "reporte_preset", "reporte_seccion", "reporte_orden", "reporte_modo_rapido", "reporte_nombre", "resumen_panel", "color_en_hojas_ok", "equipo_agregar", "equipo_cancelar", "equipo_guardar", "equipo_dar_acceso", "equipo_quitar", "equipo_quitar_ok", "unirse", "unirse_pedir"}}
 
 
 def _firma_config():
