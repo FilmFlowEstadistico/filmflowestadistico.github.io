@@ -4,6 +4,19 @@ const textoDelPdf = async (datos) => (await import("./pdftexto.js")).textoDelPdf
 
 const CFG = window.FILMFLOW_CONFIG || {};
 const PRUEBA = window.FILMFLOW_PRUEBA || null;       // solo lo pone el entorno de pruebas
+// App del Mac: la MISMA interfaz, servida por la app del Mac (ventana_web.py). El Python corre en el Mac (no en el navegador) y la
+// sesión de Google es la del Mac. La clave viene en la dirección (?mac=…) y va en cada pedido al Mac.
+const CLAVE_MAC = new URLSearchParams(location.search).get("mac") || "";
+const MAC = !!CLAVE_MAC && !PRUEBA;
+async function mac(metodo, p = {}) {
+  const r = await fetch("/mac/" + metodo, { method: "POST", headers: { "Content-Type": "application/json", "X-FF-Clave": CLAVE_MAC }, body: JSON.stringify(p) });
+  if (!r.ok) throw new Error("La app del Mac no respondió (" + r.status + "). Ciérrala y ábrela otra vez.");
+  return r.json();
+}
+if (MAC) {
+  document.documentElement.classList.add("en-mac");
+  setInterval(() => { mac("latido").catch(() => {}); }, 5000);            // así el Mac sabe que la ventana sigue abierta
+}
 const base = new URL("./", location.href).href;
 const $ = (s) => document.querySelector(s);
 const vista = $("#vista");
@@ -186,6 +199,7 @@ function modal({ titulo, texto, input, valor, si = "Aceptar", no = "Cancelar", l
 // ---------- Python en segundo plano ----------
 let worker, idMsg = 0, etapaMotor = ""; const pendientes = new Map();
 function nuevoWorker() {
+  if (MAC) return;                                 // en el Mac el Python corre en el propio Mac
   worker = new Worker("worker.js");
   worker.onerror = (ev) => {                       // el worker no cargó o se cayó (memoria): se avisa a todo lo que esperaba
     const err = new Error("El motor de Python no pudo iniciar: " + ((ev && ev.message) || "el proceso de fondo se detuvo"));
@@ -204,6 +218,7 @@ const mensaje = (m) => new Promise((res, rej) => {
 });
 // Si el motor falla al arrancar (en iPhone a veces una descarga llega a medias), se reintenta solo, bajando los archivos de nuevo.
 async function arrancarMotor() {
+  if (MAC) { await mac("latido"); return {}; }
   const opc = PRUEBA ? { sheets: PRUEBA.sheets } : {};
   let ultimo;
   sinGuardar = !(await probarIDB());
@@ -228,6 +243,7 @@ async function ofrecerReparar(e) {
 
 async function llamar(nombre, p = {}) {
   await motorListo;
+  if (MAC) return await mac("llamar", { nombre, p });
   const out = await mensaje({ tipo: "llamar", nombre, p, token: tokenVigente(), correo: sesion.correo });
   return out.r;
 }
@@ -264,6 +280,7 @@ async function api(nombre, p = {}) {
 // ---------- cuenta de Google ----------
 function tokenVigente() {
   if (PRUEBA) return PRUEBA.token;
+  if (MAC) return sesion.token;
   return sesion.token && Date.now() < sesion.exp - 60000 ? sesion.token : null;
 }
 function cargarSesion() {
@@ -351,8 +368,21 @@ async function regresoDeGoogle() {
   if (sesion.correo) guardar("ff-correo", sesion.correo);
   return "ok";
 }
+async function sesionMac() {          // la sesión de Google del Mac (token.json)
+  try { const s = await mac("sesion"); sesion = s.correo ? { token: "mac", exp: Date.now() + 1e12, correo: s.correo, permisos: s.permisos || "" } : { token: null, exp: 0, correo: null }; }
+  catch (e) { sesion = { token: null, exp: 0, correo: null }; }
+  if (sesion.correo) guardar("ff-correo", sesion.correo);
+  return sesion.token;
+}
 async function pedirToken(interactivo) {
   if (PRUEBA) return PRUEBA.token;
+  if (MAC) {                           // se abre el navegador del Mac para elegir la cuenta (como siempre en la app del Mac)
+    if (!interactivo) return await sesionMac();
+    ocupado(true, "Elige tu cuenta de Google en el navegador que se abrió…");
+    try { const r = await mac("entrar", {}); if (r.error) { errorConexion = r.error; return null; } }
+    finally { ocupado(false); }
+    return await sesionMac();
+  }
   errorConexion = "";
   if (!CFG.clientId) {
     await modal({ titulo: "Falta un paso de instalación", si: "Entendido", no: "",
@@ -379,18 +409,19 @@ function textoErrorConexion() {
   if (e === "popup_closed") return "Cerraste la ventana de Google antes de terminar. Toca el botón para intentarlo otra vez.";
   if (/access_denied/i.test(e)) return "No se dio el permiso: en la pantalla de Google hay que tocar «Continuar» y marcar TODAS las casillas (si sale «Google no verificó esta app», toca «Configuración avanzada» → «Ir a …»).";
   if (e === "estado") return "El inicio de sesión no terminó bien (la respuesta de Google no coincide). Vuelve a tocar el botón.";
+  if (MAC && e) return e;
   if (/redirect_uri/i.test(e)) return "Google no reconoce la dirección de la app para volver. Avísale a quien administra la app (Google Cloud → URI de redireccionamiento).";
   return "No se conectó la cuenta de Google" + (e && e !== "sin_respuesta" ? " (" + e + ")" : "") + ". Vuelve a intentarlo.";
 }
 async function conectar() {
-  if (ES_APP_INSTALADA && !PRUEBA && CFG.clientId) { irAGoogle(PERMISOS); return; }
+  if (ES_APP_INSTALADA && !PRUEBA && !MAC && CFG.clientId) { irAGoogle(PERMISOS); return; }
   const t = await pedirToken(true);
   if (t) {
     toast("Cuenta conectada" + (sesion.correo ? ": " + sesion.correo : ""));
     const _p = actual; document.body.classList.remove("sin-sesion"); ocultarPortada();
     await ir(PAGINAS_GOOGLE.has(_p) ? _p : "resumen", false);
     if (leer("ff-unirse") && leer("ff-unirse") !== "null") await procesarInvitacion(); else sincronizar(false);
-  } else if (CFG.clientId) {
+  } else if (CFG.clientId || MAC) {
     if (errorConexion === "toca_otra_vez") toast(textoErrorConexion());
     else await modal({ titulo: "No se pudo conectar", texto: textoErrorConexion(), si: "Entendido", no: "" });
   }
@@ -398,7 +429,8 @@ async function conectar() {
 async function desconectar() {
   const ok = await modal({ titulo: "Desconectar", texto: "¿Desconecto tu cuenta de Google de este teléfono? Tus hojas y tus proyectos no se tocan.", si: "Desconectar" });
   if (!ok) return;
-  try { google.accounts.oauth2.revoke(sesion.token, () => {}); } catch (e) {}
+  if (MAC) { try { await mac("salir"); } catch (e) {} }
+  else try { google.accounts.oauth2.revoke(sesion.token, () => {}); } catch (e) {}
   sesion = { token: null, exp: 0, correo: null }; guardar("ff-sesion", "null");
   delete memoria["ff-correo"]; try { localStorage.removeItem("ff-correo"); sessionStorage.removeItem("ff-correo"); } catch (e) {}
   await ir(actual, true);
@@ -606,6 +638,13 @@ async function mostrar(r, nuevaPagina) {
   if (r.pedir_permiso) {             // «Equipo del proyecto»: compartir hojas pide a Google un permiso más (se va a Google y se vuelve solo)
     const c = r.pedir_permiso;
     if (await modal({ titulo: "Falta un permiso de Google", texto: c.texto, si: "Dar permiso" })) {
+      if (MAC) {                        // en el Mac: se abre el navegador, das el permiso y se sigue aquí mismo
+        ocupado(true, "Da el permiso en el navegador que se abrió…");
+        let r; try { r = await mac("entrar", { extra: [c.scope] }); } finally { ocupado(false); }
+        if (r && r.error) await modal({ titulo: "No se dio el permiso", texto: r.error, si: "Entendido", no: "" });
+        else { await sesionMac(); if (c.luego && c.luego.accion) mostrar(await api(c.luego.accion, c.luego.p || {})); }
+        return;
+      }
       guardar("ff-pendiente", JSON.stringify(c.luego || null));
       irAGoogle(PERMISOS + " " + c.scope);
     }
@@ -875,7 +914,7 @@ async function abrirReporte(rep) {
   const capa = document.createElement("div");
   capa.className = "reporte-capa";
   capa.innerHTML = `<div class="reporte-barra"><button class="btn mini" data-r="cerrar">Cerrar</button><span class="espacio"></span>
-    <button class="btn mini" data-r="pdf">PDF / Imprimir</button><button class="btn mini acento" data-r="compartir">Compartir</button></div>
+    <button class="btn mini" data-r="pdf" title="${MAC ? "Guarda el PDF en Documentos › Reportes FilmFlow y lo abre." : "Imprimir o guardar como PDF."}">${MAC ? "Guardar PDF" : "PDF / Imprimir"}</button><button class="btn mini acento" data-r="compartir">Compartir</button></div>
     <iframe title="Reporte"></iframe>`;
   document.body.appendChild(capa);
   document.body.classList.add("con-reporte");
@@ -890,6 +929,13 @@ async function abrirReporte(rep) {
   capa.addEventListener("click", async (e) => {
     const b = e.target.closest("[data-r]"); if (!b) return;
     if (b.dataset.r === "cerrar") { capa.remove(); document.body.classList.remove("con-reporte"); return; }
+    if (b.dataset.r === "pdf" && MAC) {           // Mac: PDF y página web en Documentos › Reportes FilmFlow, y se abre el PDF
+      ocupado(true, "Guardando el PDF…");
+      let r; try { r = await mac("guardar_reporte", { html, nombre: rep.nombre }); } catch (x) { r = { error: x.message }; } finally { ocupado(false); }
+      if (r.error) await modal({ titulo: "No pude guardar el reporte", texto: r.error, si: "Entendido", no: "" });
+      else toast((r.pdf ? "Listo: guardé «" : "Guardé la página «") + r.nombre + "» en Documentos › Reportes FilmFlow");
+      return;
+    }
     if (b.dataset.r === "pdf") {
       // Imprimir el marco: en el iPhone sale la hoja de impresión, y desde ahí «Compartir» lo guarda como PDF.
       try { marco.contentWindow.focus(); marco.contentWindow.print(); } catch (x) { descargar(); }
@@ -1067,6 +1113,7 @@ document.addEventListener("visibilitychange", () => {
 });
 
 async function repararDatos() {
+  if (MAC) { location.reload(); return; }
   ocupado(true, "Reparando…");
   try { if (navigator.serviceWorker) for (const r of await navigator.serviceWorker.getRegistrations()) await r.unregister(); } catch (e) {}
   try { for (const k of await caches.keys()) await caches.delete(k); } catch (e) {}
@@ -1091,7 +1138,7 @@ function escucharVersionNueva() {
     aplicar();
   });
 }
-if ("serviceWorker" in navigator && !PRUEBA) escucharVersionNueva();
+if ("serviceWorker" in navigator && !PRUEBA && !MAC) escucharVersionNueva();
 function activarActualizaciones() {
   navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then((reg) => {
     const revisar = async () => { if (navigator.onLine || await probarRed()) { reg.update().catch(() => {}); revisarVersion(false); } };
@@ -1107,7 +1154,37 @@ const MI_VERSION = self.FF_VERSION || { id: "", app: "", fecha: "" };
 const URL_DESCARGAS = "https://filmflowestadistico.github.io/";
 let versionNube = null, ultimaRevision = 0, revisandoVersion = false, forzandoVersion = false;
 const numVersion = (v) => parseInt(String(v || "").replace(/\D/g, ""), 10) || 0;
+// ---- Mac: las actualizaciones de la app instalada (descarga, cambia la app y la vuelve a abrir: actualizar.py) ----
+let macVersion = null, macRevisada = 0, macBuscando = false, macPospuesta = "";
+async function revisarVersionMac(aMano) {
+  if (macBuscando) return;
+  macBuscando = true; if (actual === "app") pintarVersion();
+  let r; try { r = await mac("buscar_actualizacion"); } catch (e) { r = { error: e.message }; }
+  macBuscando = false; macRevisada = Date.now();
+  if (!r.error) macVersion = r;
+  if (actual === "app") pintarVersion();
+  if (r.error) { if (aMano) toast(r.error); return; }
+  if (!r.nueva) { if (aMano) toast("Tienes la última versión (" + r.actual + ")"); return; }
+  if (!aMano && macPospuesta === r.version) return;
+  const nov = (r.novedades || []).map((x) => "•  " + x).join("\n");
+  const si = await modal({ titulo: "Hay una versión nueva: " + r.version, texto: (nov ? "Novedades:\n" + nov + "\n\n" : "") + "Tienes la " + r.actual + ". Se descarga, la app se cierra y se abre sola con la nueva (no se pierde nada).", si: "Actualizar ahora", no: "Más tarde" });
+  if (!si) { macPospuesta = r.version; return; }
+  const ini = await mac("instalar_actualizacion"); if (ini.error) { await modal({ titulo: "No pude actualizar", texto: ini.error, si: "Entendido", no: "" }); return; }
+  ocupado(true, "Descargando la versión nueva… 0 %");
+  for (;;) {
+    await new Promise((ok) => setTimeout(ok, 400));
+    const pr = await mac("progreso");
+    const o = $("#ocupado-txt"); if (o) o.textContent = pr.estado === "descargando" ? `Descargando la versión nueva… ${Math.round(pr.v * 100)} % · no cierres la app` : "Preparando la versión nueva…";
+    if (pr.estado === "error") { ocupado(false); await modal({ titulo: "No pude actualizar", texto: pr.error + "\n\nTu app sigue igual.", si: "Entendido", no: "" }); return; }
+    if (pr.estado === "descargas") { ocupado(false); await modal({ titulo: "La versión nueva quedó en Descargas", texto: "No puedo cambiar la app donde está. Abre el archivo que dejé en Descargas y arrastra «Estadistico FilmFlow» a Aplicaciones (reemplazando la anterior).", si: "Entendido", no: "" }); return; }
+    if (pr.estado === "listo") break;
+  }
+  ocupado(false);
+  await modal({ titulo: "Lista la versión " + r.version, texto: "La app se va a cerrar y se abrirá sola en unos segundos con la versión nueva.", si: "Entendido", no: "" });
+  await mac("reiniciar_actualizado");
+}
 async function revisarVersion(aMano) {
+  if (MAC) return revisarVersionMac(aMano);
   if (PRUEBA || !MI_VERSION.id || revisandoVersion) return null;
   revisandoVersion = true; if (aMano && actual === "app") pintarVersion();
   try {
@@ -1143,6 +1220,15 @@ async function forzarVersionNueva() {
 }
 function pintarVersion() {
   const cont = $("#js-version"); if (!cont) return;
+  if (MAC) {
+    const estadoMac = macBuscando ? "Buscando si hay una versión nueva…" : macVersion && macVersion.nueva ? `Hay una versión nueva (${macVersion.version}).`
+      : macRevisada && macVersion ? `Tienes la última versión. Revisado a las ${new Date(macRevisada).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" })}.` : "Se revisa sola al abrir la app y cada 6 horas.";
+    cont.innerHTML = `<section class="tarjeta"><p>Versión instalada: <b>${(macVersion && macVersion.actual) || MI_VERSION.app || "—"}</b> <span class="sub">· app del Mac</span></p>
+      <p class="sub">${estadoMac}</p>
+      <div class="barra-mini llena"><button class="btn" data-js="buscar_version" title="Preguntar ahora mismo si hay una versión nueva de la app del Mac.">Buscar actualizaciones</button>
+      <button class="btn" data-js="compartir_descarga" title="Mandar a otro data manager el enlace para instalar la app (Mac y celular).">Compartir enlace de descarga</button></div></section>`;
+    return;
+  }
   const nueva = versionNube && numVersion(versionNube.id) > numVersion(MI_VERSION.id);
   const estado = revisandoVersion ? "Buscando si hay una versión nueva…"
     : nueva ? `Hay una versión nueva (${versionNube.app || versionNube.id}): se está instalando sola.`
@@ -1165,9 +1251,10 @@ async function procesarInvitacion() {
   const inv = new URLSearchParams(location.search).get("unirse");       // enlace de invitación a un proyecto
   if (inv) { guardar("ff-unirse", inv); history.replaceState(null, "", location.pathname + location.hash); }
   cargarSesion(); revisarRed(); if (!navigator.onLine) probarRed();
-  const regreso = PRUEBA ? null : await regresoDeGoogle();          // volviendo de iniciar sesión (app instalada)
+  if (MAC) { try { await motorListo; } catch (e) {} await sesionMac(); if (!sesion.correo) { delete memoria["ff-correo"]; try { localStorage.removeItem("ff-correo"); } catch (e) {} } }
+  const regreso = PRUEBA || MAC ? null : await regresoDeGoogle();          // volviendo de iniciar sesión (app instalada)
   if (regreso === "redirige") return;
-  if (!PRUEBA && CFG.clientId) cargarGIS().catch(() => {});
+  if (!PRUEBA && !MAC && CFG.clientId) cargarGIS().catch(() => {});
   const sinSesion = !tokenVigente() && !PRUEBA && !leer("ff-correo");
   let conCache = false;
   if (sinSesion) {                                   // primera pantalla: solo conectar con Google; el motor carga detrás
@@ -1190,9 +1277,11 @@ async function procesarInvitacion() {
   if (regreso !== "ok") pendiente = null;
   if (regreso === "error") await modal({ titulo: "No se pudo conectar", texto: textoErrorConexion(), si: "Entendido", no: "" });
   if (almacenFalla || sinGuardar) avisoPrivado();
-  if ("serviceWorker" in navigator && !PRUEBA) activarActualizaciones();
+  if ("serviceWorker" in navigator && !PRUEBA && !MAC) activarActualizaciones();
+  if (MAC) setTimeout(() => revisarVersionMac(false), 6000);
   const inicial = new URLSearchParams(location.search).get("p") || "resumen";
-  window.__ff = { api, ir, listo: true, get sesion() { return sesion; }, sincronizar };
+  window.__ff = { api, ir, listo: true, get sesion() { return sesion; }, sincronizar, MAC };
+  if (MAC) setInterval(() => { if (!document.hidden) revisarVersionMac(false); }, 6 * 3600 * 1000);
   try { const c = await llamar("cuenta", {}); if (c && c.proyectos) actualizarProyectos(c.proyectos); } catch (e) {}
   if (sinSesion && !leer("ff-correo")) return;       // sigue en la pantalla de inicio hasta que conecte
   if (tokenVigente() && !conCache) await sincronizar(false);   // sin nada guardado: primero traer los proyectos y leer una sola vez
@@ -1201,3 +1290,10 @@ async function procesarInvitacion() {
   await procesarInvitacion();
   if (tokenVigente() && conCache) sincronizar(false);
 })();
+
+// Mac: atajos de teclado como en la app de siempre (⌘1 Resumen … ⌘6 Ajustes, ⌘, Ajustes de la app)
+if (MAC) document.addEventListener("keydown", (e) => {
+  if (!e.metaKey || e.altKey || e.ctrlKey) return;
+  const pags = { "1": "resumen", "2": "registrar", "3": "hojas", "4": "reporte", "5": "correo", "6": "ajustes", ",": "app" };
+  if (pags[e.key]) { e.preventDefault(); ir(pags[e.key]); }
+});

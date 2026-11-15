@@ -1343,11 +1343,12 @@ def revisar(p):
                     m_ = rc.celda_en(valores, r_, "mag") if r_ else None
                     if isinstance(m_, (int, float)) and not isinstance(m_, bool):
                         f_["mag"] = int(m_)
-                for f_ in filas:
+                color_cfg = {g["id"]: g["color"] for g in cfg2["grupos"] if g.get("color")}   # manda el color elegido en el proyecto
+                for f_ in filas:                       # el de la hoja solo para los rollos sin color en el proyecto
                     r_ = cmp06["filas_hoja"].get(f_["nombre"])
-                    if r_:
+                    if r_ and not color_cfg.get(f_["grupo"]):
                         pendientes.setdefault(f_["grupo"], r_)
-                plan = {"ya06": True, "colores_vista": {}, "cmp06": cmp06, "cfg": cfg2, "filas": filas, "reporte": reporte, "avisos": avisos,
+                plan = {"ya06": True, "colores_vista": {gid: c for gid, c in color_cfg.items() if any(f_["grupo"] == gid for f_ in filas)}, "cmp06": cmp06, "cfg": cfg2, "filas": filas, "reporte": reporte, "avisos": avisos,
                         "validacion": rc.validar_contra_pdf(texto, filas), "titulo": info["titulo"], "pestana": pestana, "nuevos": nuevos,
                         "sin_leer": reporte["sin_leer"], "sid": sid, "sheet_id": info["sheet_id"], "inicio": cmp06["inicio"], "total": cmp06["total"] or cmp06["final"],
                         "solicitudes": rc.solicitudes_reemplazo(info["sheet_id"], cmp06["celdas"])}
