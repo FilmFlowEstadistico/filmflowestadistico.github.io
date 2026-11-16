@@ -705,12 +705,16 @@ def html_secciones(r, datos):
             n_on += 1 if marcado else 0
             filas.append(f'<label class="sec-op{" sin-datos" if falta else ""}" title="{esc(expl)}">'
                          f'<input type="checkbox" class="sw" data-sec="{sid}" {a("reporte_seccion", id=sid)} {"checked" if marcado else ""} {"disabled" if falta else ""}>'
-                         f'<span class="sec-txt"><b>{esc(nombre)}</b><small>{esc(("No disponible: " + falta) if falta else expl)}</small></span></label>')
+                         f'<span class="sec-txt"><b>{esc(nombre)}</b><small>{esc(("No disponible: " + falta) if falta else expl)}</small></span>'
+                         f'<button type="button" class="ojo" data-js="ver_seccion" data-sec="{sid}" {"" if marcado else "disabled"} '
+                         f'title="Ver dónde queda «{esc(nombre)}» en la vista previa" aria-label="Ver dónde queda en la vista previa">{OJO}</button></label>')
         out.append(f'<details class="sec-grupo" data-k="rep-{esc(grupo)}"{" open" if k == 0 else ""}><summary><span class="sec-tit">{esc(grupo)}</span>'
                    f'<span class="sec-cuenta">{n_on} de {n_tot}</span></summary>{"".join(filas)}</details>')
     return "".join(out)
 
 
+OJO = ('<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" fill="none" stroke="currentColor" '
+       'stroke-width="1.8" stroke-linejoin="round"/><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>')
 GRIP = ('<span class="grip" role="button" aria-label="Mantén y arrastra para cambiar el orden" title="Mantén y arrastra para cambiar el orden">'
         '<svg viewBox="0 0 24 24"><circle cx="9" cy="6" r="1.7"/><circle cx="15" cy="6" r="1.7"/><circle cx="9" cy="12" r="1.7"/>'
         '<circle cx="15" cy="12" r="1.7"/><circle cx="9" cy="18" r="1.7"/><circle cx="15" cy="18" r="1.7"/></svg></span>')

@@ -632,6 +632,7 @@ async function mostrar(r, nuevaPagina) {
   if (r.html !== undefined && r.pagina === actual) {
     const y = scrollY, abiertas = abiertos();
     vista.dataset.pagina = actual;
+    document.documentElement.classList.toggle("en-reporte", actual === "reporte");
     vista.innerHTML = cabeza(actual) + r.html; posprocesar(); restaurarAbiertos(abiertas);
     if (r.subtitulo) { const h = vista.querySelector(".cab-pagina"); if (h) h.insertAdjacentHTML("beforeend", `<p>${r.subtitulo}</p>`); }
     if (!nuevaPagina) scrollTo(0, y);
@@ -718,6 +719,7 @@ async function copiar(texto, html) {
 
 const JS = {
   conectar, desconectar,
+  ver_seccion(el) { verSeccion(el.dataset.sec, true); },
   ampliar_vista(el) {                       // la vista previa en grande, en toda la ventana (se sigue pudiendo ordenar)
     const on = document.body.classList.toggle("vista-grande");
     document.querySelectorAll('[data-js="ampliar_vista"]').forEach((b) => { b.textContent = on ? "Cerrar" : "Ampliar"; b.classList.toggle("acento", on); });
@@ -867,12 +869,32 @@ function prepararAsasVista() {
 .ff-asa:hover,.ff-arrastrando>.ff-asa{opacity:1;background:rgba(142,142,147,.18);color:#1fbf6a}
 .ff-arrastrando{z-index:20;cursor:grabbing;box-shadow:0 18px 40px rgba(0,0,0,.28);border-radius:16px}
 .ff-ordenando>.ff-mov:not(.ff-arrastrando){transition:transform .24s cubic-bezier(.2,.8,.2,1)}
-@media print{.ff-asa{display:none}}`;
+.ff-quitar{position:absolute;right:-40px;top:6px;width:30px;height:30px;border-radius:50%;border:0;display:grid;place-items:center;cursor:pointer;
+  background:rgba(229,72,77,.12);color:#e5484d;font:700 18px/1 -apple-system,system-ui,sans-serif;opacity:.7;z-index:3;padding:0}
+.ff-quitar:hover{opacity:1;background:#e5484d;color:#fff}
+.kpi.ff-mov-k{position:relative}.kpi>.ff-quitar{right:6px;top:6px;width:24px;height:24px;font-size:15px;opacity:0}
+.kpi:hover>.ff-quitar{opacity:.8}
+.ff-visto{animation:ffvisto 1.6s ease-out}
+@keyframes ffvisto{0%,35%{box-shadow:0 0 0 3px #1fbf6a,0 0 0 9px rgba(31,191,106,.25)}100%{box-shadow:0 0 0 0 rgba(31,191,106,0)}}
+@media print{.ff-asa,.ff-quitar{display:none!important}}`;
   d.head.appendChild(st);
   d.querySelectorAll(".hoja > [data-sec], .hoja > [data-sec-grupo]").forEach((b) => {
     b.classList.add("ff-mov");
     const a = d.createElement("span"); a.className = "ff-asa"; a.title = "Arrastra para mover esta parte del PDF"; a.innerHTML = ASA_SVG;
     b.appendChild(a);
+    const quitar = (sid, donde, nombre) => {          // la ✕ roja: quita esa parte del PDF (solo existe en la vista previa, nunca en el PDF)
+      const x = d.createElement("button"); x.type = "button"; x.className = "ff-quitar"; x.textContent = "✕"; x.dataset.quitar = sid;
+      x.title = "Quitar esta parte del PDF" + (nombre ? " («" + nombre + "»)" : ""); donde.appendChild(x);
+    };
+    const nombreDe = (sid) => { const sw = vista.querySelector(`input.sw[data-sec="${sid}"]`); const t = sw && sw.closest("label")?.querySelector(".sec-txt b"); return t ? t.textContent : ""; };
+    if (b.dataset.secGrupo) b.querySelectorAll(":scope > .kpi-g").forEach((g) => { const k = g.querySelector(".kpi"); if (k) { k.classList.add("ff-mov-k"); quitar(g.dataset.sec, k, nombreDe(g.dataset.sec)); } });
+    else quitar(b.dataset.sec, b, nombreDe(b.dataset.sec));
+  });
+  d.addEventListener("click", (e) => {
+    const x = e.target.closest && e.target.closest(".ff-quitar"); if (!x) return;
+    e.preventDefault(); e.stopPropagation();
+    const sid = x.dataset.quitar, sw = vista.querySelector(`input.sw[data-sec="${sid}"]`);
+    if (sw && sw.checked) { sw.checked = false; prenderSeccion(sid, false); api("reporte_seccion", { id: sid, valor: false }); }
   });
   let m = null, raf = 0;
   const fr = () => vista.querySelector(".rep-vista iframe");
@@ -939,7 +961,28 @@ function prepararAsasVista() {
 }
 // Prender / apagar una sección: en la vista previa se muestra o se esconde al instante (ya viene armada), con una entrada suave;
 // la lista del orden y la cuenta de cada grupo también cambian. Python solo lo guarda (sin volver a dibujar la pantalla).
+// Dónde está una parte del reporte en la vista previa (las cifras no tienen caja propia: se usa su primera tarjeta)
+function bloqueDe(d, sid) {
+  const el = d && d.querySelector(`[data-sec="${sid}"]`); if (!el) return null;
+  return el.classList.contains("kpi-g") ? (el.querySelector(".kpi") || el) : el;
+}
+// El ojito: desliza la vista previa hasta esa parte y la resalta un momento. En el teléfono, si se pide, abre el paso «Vista previa».
+function verSeccion(sid, abrirPaso) {
+  const d = docVista(), caja = vista.querySelector(".rep-vista"), fr = caja && caja.querySelector("iframe");
+  const el = bloqueDe(d, sid); if (!el || !fr) return;
+  let espera = 0;
+  if (abrirPaso && getComputedStyle(vista.querySelector('[data-paso-de="vista"]') || document.body).display === "none") {
+    guardar("ff-rep-paso", "vista"); ponerPasoReporte(); espera = 120;       // primero se muestra el paso y se acomoda la vista previa
+  }
+  setTimeout(() => {
+    const s = fr.getBoundingClientRect().width / ANCHO_HOJA, y = (el.getBoundingClientRect().top + d.defaultView.scrollY) * s;
+    caja.scrollTo({ top: Math.max(0, y - 16), behavior: "smooth" });
+    el.classList.remove("ff-visto"); void el.offsetWidth; el.classList.add("ff-visto");
+    setTimeout(() => el.classList.remove("ff-visto"), 1700);
+  }, espera);
+}
 function prenderSeccion(sid, on) {
+  const ojo = vista.querySelector(`button.ojo[data-sec="${sid}"]`); if (ojo) ojo.disabled = !on;
   const d = docVista();
   if (d) {
     const el = d.querySelector(`[data-sec="${sid}"]`);
@@ -955,6 +998,7 @@ function prenderSeccion(sid, on) {
   vista.querySelectorAll('.segmentado .seg[data-a="reporte_preset"]').forEach((b) => b.classList.remove("on"));
   const nuevo = d && d.documentElement ? "<!doctype html>" + d.documentElement.outerHTML : "";
   if (nuevo) vistaHtml = nuevo;
+  if (on) setTimeout(() => verSeccion(sid, false), 60);       // al prenderla, la vista previa muestra dónde quedó
 }
 async function abrirReporte(rep) {
   const html = rep.html.replace("LOGO_CLARO", await logoComoDato("assets/logo_filmflow_claro.png"))
@@ -1351,3 +1395,11 @@ if (MAC) document.addEventListener("keydown", (e) => {
 
 // Esc cierra la vista previa ampliada; al cambiar de pestaña también se cierra
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && document.body.classList.contains("vista-grande")) JS.ampliar_vista(); });
+
+// Reporte en pantalla ancha: la cuadrícula ocupa lo que queda de ventana (cada columna se desliza por dentro: nada «salta» al desplazar)
+function medirReporte() {
+  const g = vista.querySelector(".rep-grid"); if (!g) return;
+  document.documentElement.style.setProperty("--rep-top", Math.round(g.getBoundingClientRect().top + scrollY) + "px");
+}
+new MutationObserver(() => { if (actual === "reporte") { medirReporte(); ajustarVista(); } }).observe(vista, { childList: true });
+addEventListener("resize", () => { if (actual === "reporte") { medirReporte(); ajustarVista(); } });

@@ -544,3 +544,19 @@ body.vista-grande::after{content:"";position:fixed;inset:0;background:rgba(0,0,0
 body.vista-grande #accion-fija{z-index:80;bottom:0;left:0}
 body.vista-grande .tj-vista{bottom:calc(var(--fijo) + env(safe-area-inset-bottom) + 8px)}
 @media (min-width:1000px) and (min-height:600px){body.vista-grande #accion-fija{left:var(--riel)}body.vista-grande .tj-vista{bottom:calc(var(--fijo) + 12px)}}
+/* ojito junto a cada parte del reporte: lleva a ella en la vista previa (apagado si la parte no va en el PDF) */
+button.ojo{margin-left:auto;flex:none;width:34px;height:34px;border:0;border-radius:10px;background:transparent;color:var(--acento-texto);
+  display:grid;place-items:center;cursor:pointer;padding:0;align-self:center}
+button.ojo svg{width:20px;height:20px}
+button.ojo:hover:not(:disabled){background:var(--seleccion)}
+button.ojo:disabled{color:var(--texto2);opacity:.35;cursor:default}
+/* Reporte en pantalla ancha: cabe en la ventana; la columna de opciones y la vista previa se deslizan cada una por su lado */
+@media (min-width:1000px) and (min-height:560px){
+  html.en-reporte,html.en-reporte body{overflow:hidden}
+  html.en-reporte .rep-grid{height:calc(100dvh - var(--rep-top, 220px) - var(--fijo) - 14px);align-items:stretch}
+  html.en-reporte .rep-col{height:100%;overflow-y:auto;overscroll-behavior:contain;padding-right:4px;scrollbar-width:thin}
+  html.en-reporte .rep-col-vista{position:static;overflow:hidden;display:flex;flex-direction:column}
+  html.en-reporte .rep-col-vista>[data-paso-de]{flex:1;min-height:0;display:flex;flex-direction:column}
+  html.en-reporte .tj-vista{flex:1;min-height:0;display:flex;flex-direction:column;margin:0}
+  html.en-reporte .tj-vista .rep-vista{flex:1;max-height:none;min-height:0}
+}

@@ -1,30 +1,31 @@
 {
- "version": "1.1.23",
+ "version": "1.1.24",
  "fecha": "2026-11-16",
  "novedades": [
-  "Reporte: la vista previa ya no deja una franja negra al cambiar opciones",
-  "Al ampliar la vista previa se ve el botón «Crear reporte»"
+  "Reporte: en pantallas grandes cabe en la ventana y ya no salta al desplazar",
+  "Ojito junto a cada parte del PDF: te lleva a ella en la vista previa",
+  "✕ roja en la vista previa para quitar una parte (no sale en el PDF)"
  ],
  "mac_arm64": {
   "archivo": "Estadistico_FilmFlow_Mac.zip",
-  "url": "https://github.com/FilmFlowEstadistico/filmflowestadistico.github.io/releases/download/v1.1.23/Estadistico_FilmFlow_Mac.zip",
-  "tamano": 41332219,
-  "sha256": "8f5e82ead1a585a95d6476533dee1754f3cd9a1d76f9107460dcef81304f9afd"
+  "url": "https://github.com/FilmFlowEstadistico/filmflowestadistico.github.io/releases/download/v1.1.24/Estadistico_FilmFlow_Mac.zip",
+  "tamano": 41332646,
+  "sha256": "beab662ca2e6d4e3abd3f6f7f3f1f5ca49ad92152d1d83626137167ce6329998"
  },
  "dmg_arm64": {
   "archivo": "Estadistico_FilmFlow.dmg",
-  "url": "https://github.com/FilmFlowEstadistico/filmflowestadistico.github.io/releases/download/v1.1.23/Estadistico_FilmFlow.dmg",
-  "tamano": 53883744
+  "url": "https://github.com/FilmFlowEstadistico/filmflowestadistico.github.io/releases/download/v1.1.24/Estadistico_FilmFlow.dmg",
+  "tamano": 53982103
  },
  "mac_intel": {
   "archivo": "Estadistico_FilmFlow_Mac_Intel.zip",
-  "url": "https://github.com/FilmFlowEstadistico/filmflowestadistico.github.io/releases/download/v1.1.23/Estadistico_FilmFlow_Mac_Intel.zip",
-  "tamano": 43099081,
-  "sha256": "03968357a7b8b45d498176f53faa411111e9636f203a9d290a5b2750e0c7c447"
+  "url": "https://github.com/FilmFlowEstadistico/filmflowestadistico.github.io/releases/download/v1.1.24/Estadistico_FilmFlow_Mac_Intel.zip",
+  "tamano": 43101274,
+  "sha256": "fc37e781db55219435eaafd5fffd7f48786996033b7f0e9af44453cf7ae630e1"
  },
  "dmg_intel": {
   "archivo": "Estadistico_FilmFlow_Intel.dmg",
-  "url": "https://github.com/FilmFlowEstadistico/filmflowestadistico.github.io/releases/download/v1.1.23/Estadistico_FilmFlow_Intel.dmg",
-  "tamano": 56108268
+  "url": "https://github.com/FilmFlowEstadistico/filmflowestadistico.github.io/releases/download/v1.1.24/Estadistico_FilmFlow_Intel.dmg",
+  "tamano": 55915426
  }
 }
