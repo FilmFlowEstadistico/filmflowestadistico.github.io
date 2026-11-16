@@ -248,7 +248,7 @@ async function llamar(nombre, p = {}) {
   return out.r;
 }
 // «Silenciosas»: no ponen nada en pantalla mientras trabajan. «Bloqueantes»: tapan la pantalla (escriben o tardan). El resto: barra de progreso arriba.
-const SILENCIOSAS = new Set(["resumen_panel", "reporte_seccion", "reporte_orden", "reporte_modo_rapido", "reporte_nombre", "marcar", "marcar_seg", "alternar_vista", "mas_hallazgos", "decision", "casilla", "unidad", "correo_prefijo", "cancelar_formulario",
+const SILENCIOSAS = new Set(["resumen_muestra", "resumen_panel", "reporte_seccion", "reporte_orden", "reporte_modo_rapido", "reporte_nombre", "marcar", "marcar_seg", "alternar_vista", "mas_hallazgos", "decision", "casilla", "unidad", "correo_prefijo", "cancelar_formulario",
   "conectar_cancelar", "importar_cancelar", "mover_rollo", "quitar_rollo", "editar_rollo", "agregar_rollo", "renombrar_pedir", "nuevo_pedir", "eliminar_proyecto",
   "quitar_estadistico", "quitar_estatus", "estatus_principal", "ir", "corregir_cruce", "corregir_errores", "escribir", "conectar_abrir"]);
 const TEXTO_OCUPADO = { revisar: "Leyendo el PDF y tus hojas de Google…", escribir_ok: "Escribiendo en tus hojas y comprobándolas…",
@@ -464,7 +464,7 @@ let plegEstado = {}; try { plegEstado = JSON.parse(leer("ff-pleg") || "{}") || {
 document.addEventListener("toggle", (e) => {
   const d = e.target; if (!d || !d.matches || !d.matches("details[data-k]") || d.dataset.restaurando) return;
   plegEstado[d.dataset.k] = d.open;
-  guardar("ff-pleg", JSON.stringify(Object.fromEntries(Object.entries(plegEstado).filter(([k]) => k.startsWith("rep-")))));
+  guardar("ff-pleg", JSON.stringify(Object.fromEntries(Object.entries(plegEstado).filter(([k]) => k.startsWith("rep-") || k.startsWith("app-")))));
 }, true);
 function restaurarAbiertos(claves) {
   vista.querySelectorAll("details[data-k]").forEach((d) => {
@@ -720,6 +720,23 @@ async function copiar(texto, html) {
 const JS = {
   conectar, desconectar,
   ver_seccion(el) { verSeccion(el.dataset.sec, true); },
+  async muestra_panel(el) {                  // Ajustes de la app: muestra aquí mismo cómo se ve esa parte del Resumen (burbuja)
+    const ya = document.querySelector(".burbuja");
+    if (ya && ya.dataset.panel === el.dataset.panel) { cerrarBurbuja(); return; }
+    cerrarBurbuja();
+    const b = document.createElement("div"); b.className = "burbuja cargando"; b.dataset.panel = el.dataset.panel;
+    b.innerHTML = '<div class="burbuja-in"><p class="sub">Preparando la muestra…</p></div>';
+    document.body.appendChild(b); ponerBurbuja(b, el);
+    const r = await api("resumen_muestra", { id: el.dataset.panel });
+    if (!document.body.contains(b) || !r || !r.muestra) return;
+    b.classList.remove("cargando");
+    b.innerHTML = `<div class="burbuja-cab"><b>${r.muestra.titulo}</b><button type="button" class="burbuja-x" aria-label="Cerrar muestra" title="Cerrar">✕</button></div>
+      <div class="burbuja-in"><div class="burbuja-escala">${r.muestra.html}</div></div>`;
+    b.querySelectorAll("details").forEach((d) => { d.open = true; });
+    b.querySelectorAll("button:not(.burbuja-x), a, input").forEach((x) => { x.tabIndex = -1; });
+    prepararGraficos(b);
+    ponerBurbuja(b, el);
+  },
   ampliar_vista(el) {                       // la vista previa en grande, en toda la ventana (se sigue pudiendo ordenar)
     const on = document.body.classList.toggle("vista-grande");
     document.querySelectorAll('[data-js="ampliar_vista"]').forEach((b) => { b.textContent = on ? "Cerrar" : "Ampliar"; b.classList.toggle("acento", on); });
@@ -874,7 +891,7 @@ function prepararAsasVista() {
 .ff-quitar:hover{opacity:1;background:#e5484d;color:#fff}
 .kpi.ff-mov-k{position:relative}.kpi>.ff-quitar{right:6px;top:6px;width:24px;height:24px;font-size:15px;opacity:0}
 .kpi:hover>.ff-quitar{opacity:.8}
-.ff-visto{animation:ffvisto 1.6s ease-out}
+.ff-visto{animation:ffvisto 1.6s ease-out!important;border-radius:14px}
 @keyframes ffvisto{0%,35%{box-shadow:0 0 0 3px #1fbf6a,0 0 0 9px rgba(31,191,106,.25)}100%{box-shadow:0 0 0 0 rgba(31,191,106,0)}}
 @media print{.ff-asa,.ff-quitar{display:none!important}}`;
   d.head.appendChild(st);
@@ -964,7 +981,9 @@ function prepararAsasVista() {
 // Dónde está una parte del reporte en la vista previa (las cifras no tienen caja propia: se usa su primera tarjeta)
 function bloqueDe(d, sid) {
   const el = d && d.querySelector(`[data-sec="${sid}"]`); if (!el) return null;
-  return el.classList.contains("kpi-g") ? (el.querySelector(".kpi") || el) : el;
+  if (el.classList.contains("kpi-g")) return el.querySelector(".kpi") || el;
+  const hijo = [...el.children].find((c) => !c.classList.contains("ff-asa") && !c.classList.contains("ff-quitar") && c.getBoundingClientRect().height > 0);
+  return hijo || el;                                  // la tarjeta que se ve (así el reborde verde sigue sus esquinas)
 }
 // El ojito: desliza la vista previa hasta esa parte y la resalta un momento. En el teléfono, si se pide, abre el paso «Vista previa».
 function verSeccion(sid, abrirPaso) {
@@ -977,7 +996,7 @@ function verSeccion(sid, abrirPaso) {
   setTimeout(() => {
     const s = fr.getBoundingClientRect().width / ANCHO_HOJA, y = (el.getBoundingClientRect().top + d.defaultView.scrollY) * s;
     caja.scrollTo({ top: Math.max(0, y - 16), behavior: "smooth" });
-    el.classList.remove("ff-visto"); void el.offsetWidth; el.classList.add("ff-visto");
+    el.classList.remove("ff-visto", "entra"); el.closest(".entra")?.classList.remove("entra"); void el.offsetWidth; el.classList.add("ff-visto");
     setTimeout(() => el.classList.remove("ff-visto"), 1700);
   }, espera);
 }
@@ -1062,7 +1081,12 @@ document.addEventListener("click", async (e) => {
 });
 document.addEventListener("change", async (e) => {
   const t = e.target;
-  if (t.matches('input.sw[data-panel]')) { api("resumen_panel", { id: t.dataset.panel, valor: t.checked }); return; }
+  if (t.matches('input.sw[data-panel]')) {
+    api("resumen_panel", { id: t.dataset.panel, valor: t.checked });
+    const sws = [...vista.querySelectorAll("input.sw[data-panel]")], c = $("#cuenta-paneles");
+    if (c) c.textContent = `${sws.filter((x) => x.checked).length} de ${sws.length}`;
+    return;
+  }
   if (t.matches('input.sw[data-sec]')) { prenderSeccion(t.dataset.sec, t.checked); api("reporte_seccion", { id: t.dataset.sec, valor: t.checked }); return; }
   if (t.matches('input[type="checkbox"][data-a]')) { mostrar(await api(t.dataset.a, { ...JSON.parse(t.dataset.p || "{}"), valor: t.checked })); return; }
   if (t.matches('[data-form="tipo"]')) alternarTipo(t.closest("form"));
@@ -1403,3 +1427,23 @@ function medirReporte() {
 }
 new MutationObserver(() => { if (actual === "reporte") { medirReporte(); ajustarVista(); } }).observe(vista, { childList: true });
 addEventListener("resize", () => { if (actual === "reporte") { medirReporte(); ajustarVista(); } });
+
+// ---- burbuja de muestra (Ajustes de la app → Resumen): junto al ojito; se cierra al tocar fuera, con Esc o al desplazar ----
+function ponerBurbuja(b, ancla) {
+  const r = ancla.getBoundingClientRect(), W = innerWidth, ancho = Math.min(360, W - 24);
+  b.style.width = ancho + "px";
+  const izq = Math.max(12, Math.min(r.right - ancho, W - ancho - 12));
+  const alto = b.offsetHeight, abajo = r.bottom + 10 + alto < innerHeight - 12;
+  b.style.left = izq + "px";
+  b.style.top = (abajo ? r.bottom + 10 : Math.max(12, r.top - 10 - alto)) + "px";
+  b.classList.toggle("arriba", !abajo);
+  b.style.setProperty("--flecha", Math.max(16, Math.min(ancho - 16, r.left + r.width / 2 - izq)) + "px");
+}
+function cerrarBurbuja() { document.querySelectorAll(".burbuja").forEach((x) => x.remove()); }
+document.addEventListener("click", (e) => {
+  const b = document.querySelector(".burbuja"); if (!b) return;
+  if (e.target.closest(".burbuja-x")) { cerrarBurbuja(); return; }
+  if (!e.target.closest(".burbuja") && !e.target.closest('[data-js="muestra_panel"]')) cerrarBurbuja();
+}, true);
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") cerrarBurbuja(); });
+addEventListener("scroll", () => cerrarBurbuja(), { passive: true });

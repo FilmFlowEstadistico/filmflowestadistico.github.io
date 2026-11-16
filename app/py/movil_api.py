@@ -421,15 +421,42 @@ def resumen_panel(p):
 
 
 def html_paneles_resumen():
+    """Ajustes de la app → «Qué sale en el Resumen»: plegable, cada parte con su interruptor y un ojito que muestra AQUÍ una muestra."""
     ocultos = paneles_ocultos()
+    ojo = OJO
     filas = "".join(
-        f'<label class="sec-op" title="{esc(expl)}"><span class="sec-txt"><b>{esc(nombre)}</b><small>{esc(expl)}</small></span>'
-        f'<input type="checkbox" class="sw" data-panel="{pid}"{"" if pid in ocultos else " checked"} aria-label="{esc(nombre)}"></label>'
+        f'<label class="sec-op" title="{esc(expl)}"><input type="checkbox" class="sw" data-panel="{pid}"{"" if pid in ocultos else " checked"} aria-label="{esc(nombre)}">'
+        f'<span class="sec-txt"><b>{esc(nombre)}</b><small>{esc(expl)}</small></span>'
+        f'<button type="button" class="ojo" data-js="muestra_panel" data-panel="{pid}" title="Ver una muestra de «{esc(nombre)}» aquí mismo" '
+        f'aria-label="Ver una muestra">{ojo}</button></label>'
         for pid, nombre, expl in PANELES_RESUMEN)
-    return H.tarjeta('<p class="sub">Prende o apaga lo que quieres ver en el Resumen. Vale para todos tus proyectos.</p>' + filas)
+    n_on = len([x for x in PANELES_RESUMEN if x[0] not in ocultos])
+    cuerpo = ('<p class="sub">Prende o apaga lo que quieres ver en el Resumen (vale para todos tus proyectos). El ojito te muestra aquí '
+              'cómo se ve cada parte.</p>' + filas)
+    return H.plegable("app-paneles", "Qué sale en el Resumen", cuerpo, f'<span class="sec-cuenta" id="cuenta-paneles">{n_on} de {len(PANELES_RESUMEN)}</span>',
+                      "toca para elegir")
 
 
-def html_resumen():
+def resumen_muestra(p):
+    """La muestra de una parte del Resumen (con tus datos, si ya leí tus hojas) para la burbuja del ojito en Ajustes de la app."""
+    pid = str(p.get("id") or "")
+    nombre, expl = next(((n, e) for i, n, e in PANELES_RESUMEN if i == pid), ("", ""))
+    html = ""
+    if E["resumen"] is not None:
+        partes = {}
+        try:
+            html_resumen(recoger=partes)
+        except Exception:
+            partes = {}
+        html = partes.get(pid, "")
+    if not html:
+        html = H.vacia(nombre or "Sin muestra", (expl + " ") + ("Ahora no hay datos para esta parte en este proyecto."
+                                                                 if E["resumen"] is not None else "Abre el Resumen una vez para ver la muestra con tus datos."))
+    return {"muestra": {"id": pid, "titulo": nombre, "html": html}}
+
+
+def html_resumen(recoger=None):
+    """El Resumen. `recoger`: diccionario donde se guarda el HTML de cada parte por su id (para las muestras de Ajustes de la app)."""
     m = E["resumen"]
     if m is None:
         try:
@@ -457,6 +484,8 @@ def html_resumen():
     ocultos = paneles_ocultos()
 
     def pon(pid, html):
+        if recoger is not None and pid and html:
+            recoger[pid] = recoger.get(pid, "") + html
         if html and (pid is None or pid not in ocultos):
             out.append(html)
     if m["serie"]:
@@ -2437,7 +2466,7 @@ def pagina_app(p=None):
            H.tarjeta('<p class="sub">«Automático» sigue la apariencia de tu iPhone y cambia sola.</p><div class="segmentado">'
                      + "".join(f'<button class="seg" data-js="tema" data-v="{v}">{t}</button>' for v, t in (("auto", "Automático"), ("claro", "Claro"), ("oscuro", "Oscuro")))
                      + '</div>'),
-           H.grupo("Qué sale en el Resumen"), html_paneles_resumen(),
+           H.grupo("Resumen"), html_paneles_resumen(),
            H.grupo("Descanso"), '<div id="js-descanso"></div>',
            H.grupo("Actualizaciones"), '<div id="js-version"></div>',
            '<p class="nota pie" data-solo="web">Estadístico FilmFlow · versión para celular y web. La apariencia, el descanso y la sesión son solo de '
@@ -2857,7 +2886,7 @@ ACCIONES = {k: v for k, v in globals().items() if callable(v) and not k.startswi
     "mover_rollo", "elegir_proyecto", "renombrar_pedir", "renombrar_ok", "nuevo_pedir", "nuevo_ok", "nuevo_conectar", "eliminar_proyecto", "eliminar_ok",
     "correo_pdf", "correo_usar_registro", "correo_prefijo", "cuenta", "sincronizar", "sync_enlace", "nuevo_dia",
     "reporte_abrir", "reporte_cerrar", "reporte_tipo", "reporte_tocar", "reporte_mes", "reporte_rango", "reporte_unidad", "reporte_modo", "reporte_contenido",
-    "reporte_crear", "reporte_semana", "reporte_semanas", "reporte_preset", "reporte_seccion", "reporte_orden", "reporte_modo_rapido", "reporte_nombre", "resumen_panel", "color_en_hojas_ok", "equipo_agregar", "equipo_cancelar", "equipo_guardar", "equipo_dar_acceso", "equipo_quitar", "equipo_quitar_ok", "unirse", "unirse_pedir"}}
+    "reporte_crear", "reporte_semana", "reporte_semanas", "reporte_preset", "reporte_seccion", "reporte_orden", "reporte_modo_rapido", "reporte_nombre", "resumen_panel", "resumen_muestra", "color_en_hojas_ok", "equipo_agregar", "equipo_cancelar", "equipo_guardar", "equipo_dar_acceso", "equipo_quitar", "equipo_quitar_ok", "unirse", "unirse_pedir"}}
 
 
 def _firma_config():
