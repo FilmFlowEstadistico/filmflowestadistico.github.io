@@ -1,29 +1,29 @@
 {
- "version": "1.1.27",
+ "version": "1.1.28",
  "fecha": "2026-11-16",
  "novedades": [
-  "Mac: arreglado el inicio de sesión en otros computadores (la app no lograba conectarse con Google)"
+  "Las actualizaciones funcionan en todos los Mac, también sin permisos de administrador (ya no dejan un zip en Descargas)"
  ],
  "mac_arm64": {
   "archivo": "Estadistico_FilmFlow_Mac.zip",
-  "url": "https://github.com/FilmFlowEstadistico/filmflowestadistico.github.io/releases/download/v1.1.27/Estadistico_FilmFlow_Mac.zip",
-  "tamano": 41376543,
-  "sha256": "2f2c1f2e3bc202a987ffce9138335036539403a03dd8a5a27c4b86bba49997d6"
+  "url": "https://github.com/FilmFlowEstadistico/filmflowestadistico.github.io/releases/download/v1.1.28/Estadistico_FilmFlow_Mac.zip",
+  "tamano": 41376170,
+  "sha256": "1610bc5675b3e6ef18cde914efdead3e4b898b9f640d67eed5195db914b26b8e"
  },
  "dmg_arm64": {
   "archivo": "Estadistico_FilmFlow.dmg",
-  "url": "https://github.com/FilmFlowEstadistico/filmflowestadistico.github.io/releases/download/v1.1.27/Estadistico_FilmFlow.dmg",
-  "tamano": 53922496
+  "url": "https://github.com/FilmFlowEstadistico/filmflowestadistico.github.io/releases/download/v1.1.28/Estadistico_FilmFlow.dmg",
+  "tamano": 53925052
  },
  "mac_intel": {
   "archivo": "Estadistico_FilmFlow_Mac_Intel.zip",
-  "url": "https://github.com/FilmFlowEstadistico/filmflowestadistico.github.io/releases/download/v1.1.27/Estadistico_FilmFlow_Mac_Intel.zip",
-  "tamano": 43143237,
-  "sha256": "74c6b568966d20f699ee433c42b239f2e8b95c13b5911644cb716b29baed74f5"
+  "url": "https://github.com/FilmFlowEstadistico/filmflowestadistico.github.io/releases/download/v1.1.28/Estadistico_FilmFlow_Mac_Intel.zip",
+  "tamano": 43140960,
+  "sha256": "6eaf36de2aaad4609dffe74387874dbe992726b04151d82cdcf350207fdfacec"
  },
  "dmg_intel": {
   "archivo": "Estadistico_FilmFlow_Intel.dmg",
-  "url": "https://github.com/FilmFlowEstadistico/filmflowestadistico.github.io/releases/download/v1.1.27/Estadistico_FilmFlow_Intel.dmg",
-  "tamano": 55446642
+  "url": "https://github.com/FilmFlowEstadistico/filmflowestadistico.github.io/releases/download/v1.1.28/Estadistico_FilmFlow_Intel.dmg",
+  "tamano": 55446595
  }
 }
