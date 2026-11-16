@@ -1,6 +1,6 @@
-const VERSION='ff-1794704774';
+const VERSION='ff-1794853551';
 const ARCHIVOS=[
-  ['app.js','ef18d0c7925e7b28'],
+  ['app.js','e0cfa9b25df1e8fe'],
   ['assets/fondo_bienvenida.jpg','8a31a09a70f6b4cb'],
   ['assets/icono-180.png','1b2c2621dbd1f412'],
   ['assets/icono-192.png','cef4a782be966592'],
@@ -18,7 +18,7 @@ const ARCHIVOS=[
   ['py/correo_core.py','8b6e0e73be0f9ce2'],
   ['py/cruce_core.py','e7656cf2762053a0'],
   ['py/estadistico_core.py','2f2634279083fd7f'],
-  ['py/movil_api.py','5ef6fb535de4964b'],
+  ['py/movil_api.py','b258f6071d199e8a'],
   ['py/movil_html.py','ae5bc4d7260b15aa'],
   ['py/registro_core.py','1317f5378718f904'],
   ['py/registro_diario.py','f765715d350bf62c'],
@@ -28,7 +28,7 @@ const ARCHIVOS=[
   ['py/sync_core.py','59960a0fcf44daaf'],
   ['py/tema_web.py','35f4329010fae1d8'],
   ['py/web_shim.py','7086ff1a3ad21e28'],
-  ['styles.css','3ffa16ea431da16e'],
+  ['styles.css','fe82fae42d31e804'],
   ['vendor/pdfjs/pdf.mjs','a209a2124baa35cb'],
   ['vendor/pdfjs/pdf.worker.mjs','7c237f83fa56bce6'],
   ['vendor/pyodide/package.json','bf221f60c8816262'],
@@ -38,7 +38,7 @@ const ARCHIVOS=[
   ['vendor/pyodide/pyodide.js','b4cb23a53aba19c2'],
   ['vendor/pyodide/pyodide.mjs','04c052c815abb0bf'],
   ['vendor/pyodide/python_stdlib.zip','16611534726e5d8a'],
-  ['version.js','a745643bfc07757e'],
+  ['version.js','496722d9f5d48990'],
   ['worker.js','7d0ee7ac107afa5c'],
 ];
 // Al instalar una versión: los archivos con la MISMA huella que en la versión guardada se copian de ella (sin internet); los demás se

@@ -459,7 +459,19 @@ function actualizarProyectos(info) {
   if (!PRUEBA) guardar("ff-proy", JSON.stringify(proyectos));
 }
 function abiertos() { return [...vista.querySelectorAll("details[data-k][open]")].map((d) => d.dataset.k); }
-function restaurarAbiertos(claves) { vista.querySelectorAll("details[data-k]").forEach((d) => { if (claves.includes(d.dataset.k)) d.open = true; }); }
+// Lo que abriste o plegaste se respeta al volver a dibujar la pantalla (y los paneles del reporte, también al volver a abrir la app).
+let plegEstado = {}; try { plegEstado = JSON.parse(leer("ff-pleg") || "{}") || {}; } catch (e) {}
+document.addEventListener("toggle", (e) => {
+  const d = e.target; if (!d || !d.matches || !d.matches("details[data-k]") || d.dataset.restaurando) return;
+  plegEstado[d.dataset.k] = d.open;
+  guardar("ff-pleg", JSON.stringify(Object.fromEntries(Object.entries(plegEstado).filter(([k]) => k.startsWith("rep-")))));
+}, true);
+function restaurarAbiertos(claves) {
+  vista.querySelectorAll("details[data-k]").forEach((d) => {
+    const k = d.dataset.k, quiere = k in plegEstado ? plegEstado[k] : (claves.includes(k) || d.open);
+    if (d.open !== quiere) { d.dataset.restaurando = "1"; d.open = quiere; setTimeout(() => { delete d.dataset.restaurando; }, 0); }
+  });
+}
 // Gráfica «Volumen por día» dibujada al ancho real (1 unidad = 1 píxel): letras de 11–12 px en el celular y en el computador,
 // barras de 64 px como mucho y rótulos de días que no se amontonan. Se vuelve a dibujar si cambia el ancho (girar, ventana).
 const vigiaGrafico = window.ResizeObserver ? new ResizeObserver((es) => es.forEach((e) => dibujarGrafico(e.target))) : null;
@@ -587,6 +599,7 @@ function cabeza(nombre) {
 const claveCache = () => "ff-res-" + (proyectos.activo || "");
 async function ir(nombre, mantener) {
   actual = nombre; if (nombre !== "app") ultimaTab = nombre; resaltarTab();
+  document.body.classList.remove("vista-grande");
   const sinSesion = !tokenVigente() && !PRUEBA && !leer("ff-correo");        // nunca ha conectado: solo la pantalla de inicio
   document.body.classList.toggle("sin-sesion", sinSesion);
   revisarRed();
@@ -705,6 +718,11 @@ async function copiar(texto, html) {
 
 const JS = {
   conectar, desconectar,
+  ampliar_vista(el) {                       // la vista previa en grande, en toda la ventana (se sigue pudiendo ordenar)
+    const on = document.body.classList.toggle("vista-grande");
+    document.querySelectorAll('[data-js="ampliar_vista"]').forEach((b) => { b.textContent = on ? "Cerrar" : "Ampliar"; b.classList.toggle("acento", on); });
+    requestAnimationFrame(() => { ajustarVista(); setTimeout(ajustarVista, 260); });
+  },
   rep_paso(el) { guardar("ff-rep-paso", el.dataset.v); ponerPasoReporte(); scrollTo({ top: 0, behavior: "smooth" }); },
   descanso_min(el) { guardar("ff-descanso", el.dataset.v); pintarDescanso(); toast(el.dataset.v === "0" ? "Descanso: nunca" : "Descanso tras " + el.textContent); },
   descansar() { mostrarPortada("descanso"); },
@@ -764,7 +782,7 @@ const docVista = () => { const f = vista.querySelector(".rep-vista iframe"); try
 function ajustarVista() {                // la altura de la tarjeta sigue a la del documento (achicado al ancho de la tarjeta)
   const caja = vista.querySelector(".rep-vista"), lienzo = caja && caja.querySelector(".rep-lienzo"), fr = caja && caja.querySelector("iframe"), d = docVista();
   if (!fr || !d || !d.documentElement) return;
-  const s = Math.min(1, caja.clientWidth / ANCHO_HOJA), alto = Math.max(d.documentElement.scrollHeight, d.body ? d.body.scrollHeight : 0);
+  const s = Math.min(document.body.classList.contains("vista-grande") ? 1.35 : 1, caja.clientWidth / ANCHO_HOJA), alto = Math.max(d.documentElement.scrollHeight, d.body ? d.body.scrollHeight : 0);
   fr.style.width = ANCHO_HOJA + "px"; fr.style.height = alto + "px"; fr.style.transform = `scale(${s})`;
   lienzo.style.height = Math.ceil(alto * s) + "px";     // la caja tiene alto máximo y se desliza por dentro (el resto de la app no se mueve)
 }
@@ -1319,3 +1337,6 @@ if (MAC) document.addEventListener("keydown", (e) => {
   const pags = { "1": "resumen", "2": "registrar", "3": "hojas", "4": "reporte", "5": "correo", "6": "ajustes", ",": "app" };
   if (pags[e.key]) { e.preventDefault(); ir(pags[e.key]); }
 });
+
+// Esc cierra la vista previa ampliada; al cambiar de pestaña también se cierra
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && document.body.classList.contains("vista-grande")) JS.ampliar_vista(); });

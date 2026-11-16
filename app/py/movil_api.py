@@ -757,9 +757,12 @@ def html_reporte(m):
              '<button class="seg" data-js="rep_paso" data-v="dias" role="tab" title="Elegir los días del reporte">1 · Días</button>'
              '<button class="seg" data-js="rep_paso" data-v="contenido" role="tab" title="Elegir qué lleva el PDF y si es claro u oscuro">2 · Contenido</button>'
              '<button class="seg" data-js="rep_paso" data-v="vista" role="tab" title="Ver cómo queda el PDF">3 · Vista previa</button></div>')
-    izq = (f'<div data-paso-de="dias">{H.tarjeta(cuerpo, "¿Qué días?")}</div>'
-           f'<div data-paso-de="contenido">{H.tarjeta(apariencia + html_secciones(r, datos), "¿Qué lleva el PDF?")}</div>')
-    der = f'<div data-paso-de="vista">{H.tarjeta(vista, "Vista previa del PDF")}</div>'
+    sec_on = len([x for x in (r.get("secciones") or rpt.secciones_de("resumen"))])
+    izq = (f'<div data-paso-de="dias">{H.plegable("rep-dias", "¿Qué días?", cuerpo, "", datos["periodo"] if datos else "", abierto=True)}</div>'
+           f'<div data-paso-de="contenido">{H.plegable("rep-contenido", "¿Qué lleva el PDF?", apariencia + html_secciones(r, datos), "", f"{sec_on} partes prendidas", abierto=True)}</div>')
+    ampliar = ('<button class="btn mini" data-js="ampliar_vista" title="Ver la vista previa en grande, en toda la ventana (para leerla y ordenarla mejor)">'
+               'Ampliar</button>') if datos and datos["dias"] else ""
+    der = f'<div data-paso-de="vista">{H.tarjeta(vista, "Vista previa del PDF", ampliar, "tj-vista")}</div>'
     return (f'<div id="reporte-panel"></div><div class="rep-cab">{res}</div>{pasos}'
             f'<div class="rep-grid" data-paso="dias"><div class="rep-col">{izq}</div><div class="rep-col rep-col-vista">{der}</div></div>')
 
@@ -1146,15 +1149,18 @@ def html_plan():
         out.append(html_hoja06(plan))
     if plan.get("est") or plan.get("est_error"):
         out.append(html_estadistico(plan))
-    if plan.get("cruce") is not None or plan.get("cruce_error"):
-        out.append(html_incongruencias(plan.get("cruce"), plan.get("cruce_error"), "reg", E["correcciones"], escrito,
-                                       nota_error="El día se puede escribir igual."))
-    if checks:
-        out.append(H.tarjeta("".join(H.aviso(t, x) for t, x in checks), "Comprobaciones"))
-    if not escrito:
+    if not escrito:                    # qué llenar: lo más importante, justo encima de la revisión de las hojas
         if not plan.get("solo") or plan.get("est"):
             out.append(H.tarjeta((H.casilla("Estatus de tarjetas (FO-06)", E["var06"], "casilla", cual="06") if not plan.get("solo") else "")
                                  + (H.casilla("Estadístico (FO-07)", E["var07"], "casilla", cual="07") if plan.get("est") else ""), "Qué llenar"))
+    if plan.get("cruce") is not None or plan.get("cruce_error"):
+        out.append(html_incongruencias(plan.get("cruce"), plan.get("cruce_error"), "reg", E["correcciones"], escrito,
+                                       nota_error="El día se puede escribir igual."))
+    if checks:                          # comprobaciones: plegadas (se abren si quieres verlas); el chip dice si hay avisos
+        n_av = sum(1 for t, _x in checks if t in ("aviso", "error"))
+        chip = H.chip(f"{n_av} {'aviso' if n_av == 1 else 'avisos'}", "aviso") if n_av else H.chip("todo bien", "ok")
+        out.append(H.plegable(f"reg-comp-{r['dia']}-{len(checks)}-{int(bool(escrito))}", "Comprobaciones",
+                              "".join(H.aviso(t, x) for t, x in checks), chip, f"{len(checks)} revisiones del PDF y tus hojas"))
     return '<div id="resultado">' + "".join(out) + "</div>"
 
 
@@ -1305,7 +1311,7 @@ def pagina_registrar(p=None):
     icono = ICO_PDF
     if E["pdf"] and not hecho:
         zona = (f'<div class="pdf-zona listo"><div class="ico-pdf">{icono}</div><div class="nombre">{esc(E["pdf"])}</div>'
-                '<p class="nota">El PDF se lee aquí, en tu teléfono; no sale de él.</p>'
+                '<p class="nota">El PDF se lee aquí, en este equipo; no sale de él.</p>'
                 '<button class="btn mini" data-js="elegir_pdf">Cambiar PDF</button></div>')
         zona += f'<button class="btn acento grande-btn" {a("revisar", nuevo=True)} style="margin-top:0">{"Revisar de nuevo" if plan else "Revisar"}</button>'
     elif not plan:

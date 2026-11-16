@@ -356,7 +356,7 @@ body.con-reporte{overflow:hidden}
    Las secciones pasan de la barra de abajo a una columna a la izquierda (como en iPadOS) y el contenido usa más ancho. */
 @media (min-width:1000px) and (min-height:600px){
   :root{--riel:96px}
-  body{padding-bottom:calc(env(safe-area-inset-bottom) + 28px);padding-left:var(--riel)}
+  body{padding-bottom:calc(env(safe-area-inset-bottom) + var(--fijo) + 28px);padding-left:var(--riel)}
   header.barra{margin-left:calc(-1 * var(--riel));padding-left:calc(18px + env(safe-area-inset-left));padding-right:calc(18px + env(safe-area-inset-right))}
   header.barra img{width:calc(var(--riel) - 36px);height:auto;max-height:30px;object-fit:contain;object-position:left center}
   .proyecto-btn{flex:0 1 560px;margin-right:auto}
@@ -378,7 +378,7 @@ body.con-reporte{overflow:hidden}
 @media (orientation:landscape) and (max-height:520px){
   :root{--riel:78px;--cab:46px}
   html{scroll-padding-top:56px}
-  body{padding-bottom:calc(env(safe-area-inset-bottom) + 18px);padding-left:calc(var(--riel) + env(safe-area-inset-left));padding-right:env(safe-area-inset-right)}
+  body{padding-bottom:calc(env(safe-area-inset-bottom) + var(--fijo) + 18px);padding-left:calc(var(--riel) + env(safe-area-inset-left));padding-right:env(safe-area-inset-right)}
   header.barra{position:static;padding:calc(5px + env(safe-area-inset-top)) 12px 5px 18px}
   header.barra img{display:none}
   .proyecto-btn{flex:0 1 480px;margin-right:auto;min-height:38px;padding:3px 10px 4px 12px}
@@ -527,3 +527,16 @@ input.rep-in::placeholder{color:var(--texto3,#8e8e93);opacity:1}
 html.en-mac [data-solo="web"],html:not(.en-mac) [data-solo="mac"]{display:none}
 .kv2{display:flex;justify-content:space-between;align-items:baseline;gap:14px;padding:9px 0;border-bottom:1px solid var(--separador)}
 .kv2:last-child{border-bottom:0}.kv2 b{font-weight:650;white-space:nowrap}
+
+/* ---- Vista previa del reporte ampliada: ocupa toda la ventana de la app (se sigue pudiendo deslizar y ordenar) ---- */
+body.vista-grande{overflow:hidden}
+body.vista-grande .tj-vista{position:fixed;z-index:70;margin:0;display:flex;flex-direction:column;
+  top:calc(env(safe-area-inset-top) + 8px);bottom:calc(env(safe-area-inset-bottom) + 8px);left:calc(env(safe-area-inset-left) + 8px);right:calc(env(safe-area-inset-right) + 8px);
+  box-shadow:0 18px 60px rgba(0,0,0,.45)}
+@media (min-width:1000px) and (min-height:600px){body.vista-grande .tj-vista{top:calc(var(--cab) + env(safe-area-inset-top) + 10px);left:calc(var(--riel) + 14px);right:14px;bottom:14px}}
+body.vista-grande .tj-vista .rep-vista{flex:1;max-height:none}
+body.vista-grande .rep-col-vista{position:static}
+body.vista-grande::after{content:"";position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:65}
+.tj-vista .tj-titulo{display:flex;align-items:center;justify-content:space-between;gap:10px}
+/* computador (mouse/trackpad): sin el «rebote» al llegar arriba o abajo; en el teléfono se deja el natural */
+@media (hover:hover) and (pointer:fine){html,body{overscroll-behavior-y:none}.rep-vista{overscroll-behavior:none}}
