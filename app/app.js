@@ -782,8 +782,13 @@ const docVista = () => { const f = vista.querySelector(".rep-vista iframe"); try
 function ajustarVista() {                // la altura de la tarjeta sigue a la del documento (achicado al ancho de la tarjeta)
   const caja = vista.querySelector(".rep-vista"), lienzo = caja && caja.querySelector(".rep-lienzo"), fr = caja && caja.querySelector("iframe"), d = docVista();
   if (!fr || !d || !d.documentElement) return;
-  const s = Math.min(document.body.classList.contains("vista-grande") ? 1.35 : 1, caja.clientWidth / ANCHO_HOJA), alto = Math.max(d.documentElement.scrollHeight, d.body ? d.body.scrollHeight : 0);
+  // el alto es donde TERMINA la hoja (no el del documento: ese nunca baja del alto del marco, y al quitar partes quedaba una franja negra)
+  const hoja = d.querySelector(".hoja");
+  const s = Math.min(document.body.classList.contains("vista-grande") ? 1.35 : 1, caja.clientWidth / ANCHO_HOJA);
+  const alto = hoja ? Math.ceil(hoja.getBoundingClientRect().bottom + (parseFloat(d.defaultView.getComputedStyle(hoja).marginBottom) || 0))
+                    : Math.max(d.documentElement.scrollHeight, d.body ? d.body.scrollHeight : 0);
   fr.style.width = ANCHO_HOJA + "px"; fr.style.height = alto + "px"; fr.style.transform = `scale(${s})`;
+  fr.style.left = Math.max(0, Math.floor((caja.clientWidth - ANCHO_HOJA * s) / 2)) + "px";        // centrada si sobra ancho
   lienzo.style.height = Math.ceil(alto * s) + "px";     // la caja tiene alto máximo y se desliza por dentro (el resto de la app no se mueve)
 }
 async function pintarVista(html) {
@@ -793,7 +798,13 @@ async function pintarVista(html) {
                        .replace("LOGO_OSCURO", await logoComoDato("assets/logo_filmflow_oscuro.png"));
   if (conLogos === vistaHtml && fr.dataset.lista) { ajustarVista(); return; }
   vistaHtml = conLogos;
-  fr.onload = () => { fr.dataset.lista = "1"; sincronizarVista(); prepararAsasVista(); prepararNombreVista(); ajustarVista(); setTimeout(ajustarVista, 300); };
+  fr.onload = () => {
+    fr.dataset.lista = "1"; sincronizarVista(); prepararAsasVista(); prepararNombreVista(); ajustarVista(); setTimeout(ajustarVista, 300);
+    try {                                           // cualquier cambio de tamaño de la hoja (partes, letras, imágenes) ajusta el alto
+      const d = fr.contentDocument, h = d.querySelector(".hoja");
+      if (h && d.defaultView.ResizeObserver) new d.defaultView.ResizeObserver(() => ajustarVista()).observe(h);
+    } catch (e) {}
+  };
   fr.srcdoc = conLogos;
   if (!caja.dataset.vigia && window.ResizeObserver) { caja.dataset.vigia = "1"; new ResizeObserver(ajustarVista).observe(caja); }
 }

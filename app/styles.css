@@ -540,3 +540,7 @@ body.vista-grande::after{content:"";position:fixed;inset:0;background:rgba(0,0,0
 .tj-vista .tj-titulo{display:flex;align-items:center;justify-content:space-between;gap:10px}
 /* computador (mouse/trackpad): sin el «rebote» al llegar arriba o abajo; en el teléfono se deja el natural */
 @media (hover:hover) and (pointer:fine){html,body{overscroll-behavior-y:none}.rep-vista{overscroll-behavior:none}}
+/* ampliada: el botón «Crear reporte» sigue a la vista, encima, y la vista previa le deja su espacio abajo */
+body.vista-grande #accion-fija{z-index:80;bottom:0;left:0}
+body.vista-grande .tj-vista{bottom:calc(var(--fijo) + env(safe-area-inset-bottom) + 8px)}
+@media (min-width:1000px) and (min-height:600px){body.vista-grande #accion-fija{left:var(--riel)}body.vista-grande .tj-vista{bottom:calc(var(--fijo) + 12px)}}
