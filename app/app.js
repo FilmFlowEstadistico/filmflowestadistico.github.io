@@ -13,6 +13,17 @@ async function mac(metodo, p = {}) {
   if (!r.ok) throw new Error("La app del Mac no respondió (" + r.status + "). Ciérrala y ábrela otra vez.");
   return r.json();
 }
+// En la ventana propia del Mac (WebKit) el PDF lo hace la ventana con el motor de Safari
+const PDF_WEBKIT = MAC && !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.filmflow);
+let idPdf = 0; const pdfsPendientes = {};
+window.__ffPdfListo = (id, ok) => { const f = pdfsPendientes[id]; if (f) { delete pdfsPendientes[id]; f(!!ok); } };
+function pdfConWebKit(html, pdf) {
+  return new Promise((ok) => {
+    const id = ++idPdf; pdfsPendientes[id] = ok;
+    setTimeout(() => window.__ffPdfListo(id, false), 90000);
+    try { window.webkit.messageHandlers.filmflow.postMessage({ accion: "pdf", html, pdf, id }); } catch (e) { window.__ffPdfListo(id, false); }
+  });
+}
 if (MAC) {
   document.documentElement.classList.add("en-mac");
   setInterval(() => { mac("latido").catch(() => {}); }, 5000);            // así el Mac sabe que la ventana sigue abierta
@@ -474,7 +485,7 @@ function restaurarAbiertos(claves) {
 }
 // Gráfica «Volumen por día» dibujada al ancho real (1 unidad = 1 píxel): letras de 11–12 px en el celular y en el computador,
 // barras de 64 px como mucho y rótulos de días que no se amontonan. Se vuelve a dibujar si cambia el ancho (girar, ventana).
-const vigiaGrafico = window.ResizeObserver ? new ResizeObserver((es) => es.forEach((e) => dibujarGrafico(e.target))) : null;
+const vigiaGrafico = window.ResizeObserver ? new ResizeObserver((es) => requestAnimationFrame(() => es.forEach((e) => dibujarGrafico(e.target)))) : null;
 function dibujarGrafico(g) {
   let d; try { d = JSON.parse(g.dataset.g); } catch (e) { return; }
   const W = Math.round(g.clientWidth); if (!W || W === +g.dataset.w) return; g.dataset.w = W;
@@ -821,11 +832,11 @@ async function pintarVista(html) {
     fr.dataset.lista = "1"; sincronizarVista(); prepararAsasVista(); prepararNombreVista(); ajustarVista(); setTimeout(ajustarVista, 300);
     try {                                           // cualquier cambio de tamaño de la hoja (partes, letras, imágenes) ajusta el alto
       const d = fr.contentDocument, h = d.querySelector(".hoja");
-      if (h && d.defaultView.ResizeObserver) new d.defaultView.ResizeObserver(() => ajustarVista()).observe(h);
+      if (h && d.defaultView.ResizeObserver) new d.defaultView.ResizeObserver(() => requestAnimationFrame(ajustarVista)).observe(h);
     } catch (e) {}
   };
   fr.srcdoc = conLogos;
-  if (!caja.dataset.vigia && window.ResizeObserver) { caja.dataset.vigia = "1"; new ResizeObserver(ajustarVista).observe(caja); }
+  if (!caja.dataset.vigia && window.ResizeObserver) { caja.dataset.vigia = "1"; new ResizeObserver(() => requestAnimationFrame(ajustarVista)).observe(caja); }
 }
 // Si tocaste interruptores u ordenaste mientras la vista previa todavía cargaba, al terminar de cargar se pone igual a la pantalla.
 function sincronizarVista() {
@@ -1042,9 +1053,21 @@ async function abrirReporte(rep) {
     if (b.dataset.r === "cerrar") { capa.remove(); document.body.classList.remove("con-reporte"); return; }
     if (b.dataset.r === "pdf" && MAC) {           // Mac: PDF y página web en Documentos › Reportes FilmFlow, y se abre el PDF
       ocupado(true, "Guardando el PDF…");
-      let r; try { r = await mac("guardar_reporte", { html, nombre: rep.nombre }); } catch (x) { r = { error: x.message }; } finally { ocupado(false); }
+      let r;
+      try {
+        if (PDF_WEBKIT) {                         // el PDF con el motor de Safari de la ventana del Mac (no hace falta Chrome)
+          r = await mac("guardar_reporte", { html, nombre: rep.nombre, sin_pdf: true });
+          if (!r.error) {
+            let hecho = await pdfConWebKit(r.html, r.pdf_ruta);
+            if (!hecho) hecho = (await mac("pdf_chrome", { html: r.html, pdf: r.pdf_ruta })).ok;      // plan B: Chrome, si lo hay
+            const abierto = await mac("abrir_ruta", { ruta: hecho ? r.pdf_ruta : r.html });
+            r = { pdf: hecho ? r.pdf_ruta : null, nombre: abierto.nombre };
+          }
+        } else r = await mac("guardar_reporte", { html, nombre: rep.nombre });
+      } catch (x) { r = { error: x.message }; } finally { ocupado(false); }
       if (r.error) await modal({ titulo: "No pude guardar el reporte", texto: r.error, si: "Entendido", no: "" });
-      else toast((r.pdf ? "Listo: guardé «" : "Guardé la página «") + r.nombre + "» en Documentos › Reportes FilmFlow");
+      else toast((r.pdf ? "Listo: guardé «" : "Guardé la página «") + r.nombre + "» en Documentos › Reportes FilmFlow"
+                 + (r.pdf ? "" : " (no pude hacer el PDF: ábrela y usa Archivo › Exportar como PDF)"));
       return;
     }
     if (b.dataset.r === "pdf") {
