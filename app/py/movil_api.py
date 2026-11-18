@@ -3016,6 +3016,7 @@ def html_destinos(cfg):
                '<button type="button" class="btn mini acento" data-js="dest_agregar_para" title="Agregar estos correos a «Para»">+ Para</button>'
                '<button type="button" class="btn mini" data-js="dest_agregar_cc" title="Agregar estos correos a «CC» (con copia)">+ CC</button></div>'
                '<p class="nota" id="destinos-aviso"></p>')
+    agregar += '<div id="fuera-aviso" role="alert"></div>'          # rojo: a quién NO le llega este correo (lo pinta app.js)
     return (f'<div id="destinos" class="c-destinos">{fila("para", para, "Para", "Destinatarios principales de este proyecto")}'
             f'{fila("cc", cc, "CC", "Con copia: el resto de la cadena de este proyecto")}{agregar}</div>')
 
@@ -3118,7 +3119,8 @@ def pagina_correo(p=None):
         _igual = lambda x, y: re.sub(r"[^A-Z0-9]", "", x.upper()) == re.sub(r"[^A-Z0-9]", "", y.upper())
         otro = del_pdf or c["proyecto"]
         usa_abrev = bool(abrev) and not _igual(abrev, otro) and modo == "abreviatura"
-        pref = c.get("prefijo") or (re.sub(r"[^A-Za-z0-9]+", "_", abrev).strip("_").upper() if usa_abrev else None)   # si no, lo de siempre (estilo del proyecto)
+        # con la abreviatura elegida, el asunto también empieza con ella (aunque antes se hubiera aprendido otro comienzo); si no, lo de siempre
+        pref = re.sub(r"[^A-Za-z0-9]+", "_", abrev).strip("_").upper() if usa_abrev else c.get("prefijo")
         o = correo_core.opciones_automaticas(c["proyecto"], datos, {"prefijo": pref})
         o["proyecto"] = abrev if usa_abrev else otro      # sin abreviatura, o si es la misma del PDF: va lo del PDF, sin preguntar
         r = correo_core.armar(datos, o)

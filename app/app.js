@@ -790,6 +790,7 @@ const JS = {
     const r = await api("abreviatura_guardar", { valor: ($("#abrev-in") || {}).value || "" });
     if (r) mostrar(r);
   },
+  dest_todos() { fueraEstaVez.clear(); aplicarFuera(); },
   dest_agregar_para() { agregarDestinos("para"); },
   dest_agregar_cc() { agregarDestinos("cc"); },
   async dest_deshacer() { if (ultimoQuitado) { const d = ultimoQuitado; ultimoQuitado = null; const av = $("#destinos-aviso"); if (av) delete av.dataset.fijo; await opDestinos({ op: "volver", deshacer: d }); toast("Listo, volvió a la cadena"); } },
@@ -1705,8 +1706,12 @@ function aplicarFuera() {
     const ab = cadenasAbiertas.has(c.dataset.campo); c.classList.toggle("abierta", ab);
     const b = c.querySelector(".chip-mas"); if (b) { if (!b.dataset.txt) b.dataset.txt = b.textContent; b.textContent = ab ? "Ver menos" : b.dataset.txt; }
   });
-  const n = fueraEstaVez.size, av = $("#destinos-aviso");
-  if (av && !av.dataset.fijo) av.textContent = n ? `Esta vez no se envía a ${n} ${n === 1 ? "persona" : "personas"} (siguen en la cadena).` : "";
+  const n = fueraEstaVez.size, av = $("#fuera-aviso");
+  if (av) {
+    av.classList.toggle("alerta-fuera", n > 0);
+    av.innerHTML = n ? `⚠ <b>Esta vez NO se envía a ${n} ${n === 1 ? "persona" : "personas"}:</b> ${escH([...fueraEstaVez].join(", "))}. `
+      + `<button type="button" class="btn mini" data-js="dest_todos" title="Volver a incluir a todos en este correo">Incluir a todos</button>` : "";
+  }
 }
 async function opDestinos(p) {
   const r = await api("correo_destinos", p);
@@ -1734,7 +1739,7 @@ document.addEventListener("click", (e) => {
   const x = t.closest(".chip-x"); if (x) { opDestinos({ op: "quitar", correo: x.dataset.correo }); return; }
   const m = t.closest(".chip-mover"); if (m) { opDestinos({ op: "mover", correo: m.dataset.correo }); return; }
   const c = t.closest(".chip-c");
-  if (c) { const k = c.dataset.correo; fueraEstaVez.has(k) ? fueraEstaVez.delete(k) : fueraEstaVez.add(k); const av = $("#destinos-aviso"); if (av) delete av.dataset.fijo; aplicarFuera(); return; }
+  if (c) { const k = c.dataset.correo; fueraEstaVez.has(k) ? fueraEstaVez.delete(k) : fueraEstaVez.add(k); aplicarFuera(); return; }
   const f = t.closest("#tarjeta-firma .firma-op[data-firma]:not([data-js])");
   if (f) { elegirFirma(f.dataset.firma); }
 });
@@ -1849,7 +1854,7 @@ async function enviarCorreo(forzar, sinPreguntar) {
   if (!para) { await modal({ titulo: "Falta a quién enviarlo", texto: "Agrega al menos un correo en «Para» (Destinatarios de este proyecto).", si: "Entendido", no: "" }); return; }
   const fop = $("#tarjeta-firma .firma-op.on"), firma = fop ? (fop.dataset.firma || "sin firma") : "sin elegir (sale sin firma)";
   if (!sinPreguntar && !(await modal({ titulo: "¿Envío el correo?", si: "Enviar",
-      texto: `«${asunto}»\n\nPara: ${para} · CC: ${cc}${fueraEstaVez.size ? ` (esta vez sin ${fueraEstaVez.size})` : ""}\nFirma: ${firma}\nAdjuntos: ${adjuntos.length} (${mb(total)})\n\nSe envía desde tu cuenta de Gmail; queda en tus «Enviados».` }))) return;
+      texto: `«${asunto}»\n\nPara: ${para} · CC: ${cc}${fueraEstaVez.size ? `\n\n⚠ ESTA VEZ NO LES LLEGA (${fueraEstaVez.size}): ${[...fueraEstaVez].join(", ")}\n` : ""}\nFirma: ${firma}\nAdjuntos: ${adjuntos.length} (${mb(total)})\n\nSe envía desde tu cuenta de Gmail; queda en tus «Enviados».` }))) return;
   modoEnviando(true);
   try {
     if (adjuntos.some((a) => a.estado === "leyendo")) {
