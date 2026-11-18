@@ -1,6 +1,6 @@
-const VERSION='ff-1794937643';
+const VERSION='ff-1795017674';
 const ARCHIVOS=[
-  ['app.js','8d793b0edb55bb90'],
+  ['app.js','ba364cd2740ca6ca'],
   ['assets/fondo_bienvenida.jpg','8a31a09a70f6b4cb'],
   ['assets/icono-180.png','1b2c2621dbd1f412'],
   ['assets/icono-192.png','cef4a782be966592'],
@@ -13,12 +13,12 @@ const ARCHIVOS=[
   ['index.html','0b8caef788b66559'],
   ['manifest.webmanifest','15a83cb83ef6ca88'],
   ['paleta.css','8c90aae993aed9e6'],
-  ['pdftexto.js','c2c9f87a09288548'],
+  ['pdftexto.js','e35d72432ffa784e'],
   ['py/config_inicial.json','72eeafe923ad219b'],
-  ['py/correo_core.py','8b6e0e73be0f9ce2'],
+  ['py/correo_core.py','aeeafb9dd6972fc1'],
   ['py/cruce_core.py','e7656cf2762053a0'],
   ['py/estadistico_core.py','2f2634279083fd7f'],
-  ['py/movil_api.py','feadc3efa8eb7aac'],
+  ['py/movil_api.py','b852b6e0f4167cae'],
   ['py/movil_html.py','ae5bc4d7260b15aa'],
   ['py/registro_core.py','1317f5378718f904'],
   ['py/registro_diario.py','f765715d350bf62c'],
@@ -27,8 +27,8 @@ const ARCHIVOS=[
   ['py/resumen_core.py','8e32586b92ebe0c7'],
   ['py/sync_core.py','59960a0fcf44daaf'],
   ['py/tema_web.py','35f4329010fae1d8'],
-  ['py/web_shim.py','7086ff1a3ad21e28'],
-  ['styles.css','076ac5f76a7e9d67'],
+  ['py/web_shim.py','110047c4604f5b10'],
+  ['styles.css','93bb69d171ce536a'],
   ['vendor/pdfjs/pdf.mjs','a209a2124baa35cb'],
   ['vendor/pdfjs/pdf.worker.mjs','7c237f83fa56bce6'],
   ['vendor/pyodide/package.json','bf221f60c8816262'],
@@ -38,8 +38,8 @@ const ARCHIVOS=[
   ['vendor/pyodide/pyodide.js','b4cb23a53aba19c2'],
   ['vendor/pyodide/pyodide.mjs','04c052c815abb0bf'],
   ['vendor/pyodide/python_stdlib.zip','16611534726e5d8a'],
-  ['version.js','a50ca4dc2a17b94e'],
-  ['worker.js','7d0ee7ac107afa5c'],
+  ['version.js','472719d3feeaf0d6'],
+  ['worker.js','eb8792aa2b3bd9ac'],
 ];
 // Al instalar una versión: los archivos con la MISMA huella que en la versión guardada se copian de ella (sin internet); los demás se
 // piden con cache:'reload' = siempre de internet (GitHub Pages deja guardar archivos 10 min: sin esto la versión nueva podía armarse

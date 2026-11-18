@@ -276,3 +276,103 @@ def a_html(lineas):
             continue
         filas.append('<div style="margin:0;line-height:1.3">' + "".join(f"<b>{html.escape(t)}</b>" if b else html.escape(t) for t, b in l if t) + "</div>")
     return "<div style=\"font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.3\">" + "".join(filas) + "</div>"
+
+
+# =============================================================================
+# ENVIAR el correo desde la app (Gmail): quién puede, a quién (por proyecto), adjuntos y firma
+# =============================================================================
+# Por ahora solo la cuenta de la empresa puede enviar desde la app; las demás (invitados, otros correos) copian asunto y texto.
+AUTORIZADOS_ENVIO = ("datacol@filmflowtv.com",)
+PERMISO_ENVIAR = "https://www.googleapis.com/auth/gmail.send"      # solo ENVIAR (la app no puede leer tu correo)
+URL_ENVIAR = "https://gmail.googleapis.com/upload/gmail/v1/users/me/messages/send?uploadType=media"
+LIMITE_ADJUNTOS = 25 * 1000 * 1000          # lo que Gmail deja adjuntar (25 MB)
+_CORREO_RE = re.compile(r"^[A-Za-z0-9._%+'-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
+
+
+def puede_enviar(correo):
+    """¿Esta cuenta puede enviar el correo desde la app?"""
+    return (correo or "").strip().lower() in AUTORIZADOS_ENVIO
+
+
+def separar_correos(texto):
+    """Lo que la persona pegó (uno por línea, o separados por coma/punto y coma; también «Nombre <correo>» como los copia Gmail)
+    → (lista de correos válidos sin repetir, lista de lo que no parece un correo)."""
+    validos, malos, vistos = [], [], set()
+    for trozo in re.split(r"[,;\n]+", texto or ""):
+        t = trozo.strip().strip('"').strip()
+        if not t:
+            continue
+        m = re.search(r"<([^<>]+)>\s*$", t)
+        nombre = t[:m.start()].strip().strip('"').strip() if m else ""
+        correo = (m.group(1) if m else t).strip().strip('"')
+        if not _CORREO_RE.match(correo):
+            malos.append(t)
+            continue
+        if correo.lower() in vistos:
+            continue
+        vistos.add(correo.lower())
+        if nombre and nombre.lower() != correo.lower():
+            nombre = f'"{nombre}"' if re.search(r'[,;<>"@()\[\]:\\]', nombre) else nombre
+            validos.append(f"{nombre} <{correo}>")
+        else:
+            validos.append(correo)
+    return validos, malos
+
+
+def sin_repetir(cc, para):
+    """CC sin los correos que ya van en «Para» (Gmail los mandaría dos veces)."""
+    ya = {solo_correo(x).lower() for x in para or []}
+    return [x for x in cc or [] if solo_correo(x).lower() not in ya]
+
+
+def solo_correo(direccion):
+    m = re.search(r"<([^<>]+)>", direccion or "")
+    return (m.group(1) if m else direccion or "").strip()
+
+
+def limpiar_firma(h):
+    """La firma tal como viene de Gmail (HTML pegado), sin nada que pueda ejecutar código. Las imágenes siguen siendo las de Gmail."""
+    h = h or ""
+    h = re.sub(r"(?is)<(script|style|iframe|object|embed|form|meta|link)\b.*?(</\1\s*>|$)", "", h)
+    h = re.sub(r"(?is)<(script|iframe|object|embed|meta|link)\b[^>]*>", "", h)
+    h = re.sub(r"""(?i)\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)""", "", h)
+    h = re.sub(r"""(?i)(href|src)\s*=\s*(["'])\s*javascript:[^"']*\2""", r'\1="#"', h)
+    h = re.sub(r'\s+(data-aii|data-os)="[^"]*"', "", h)
+    return h.strip()
+
+
+def texto_de_firma(h):
+    """La firma en texto simple (para la parte de texto del correo)."""
+    t = re.sub(r"(?i)<br\s*/?>|</div>|</p>", "\n", h or "")
+    t = html.unescape(re.sub(r"<[^>]+>", "", t)).replace("\u200b", "")
+    return "\n".join(x.strip() for x in t.splitlines() if x.strip())
+
+
+def html_para_enviar(html_cuerpo, firma_html=None):
+    """El cuerpo como lo arma la app (el mismo de «Copiar») + la firma elegida (igual que Gmail: «-- » y la firma)."""
+    firma = (f'<br><div dir="ltr" class="gmail_signature">-- <br>{limpiar_firma(firma_html)}</div>' if firma_html else "")
+    return f"<!doctype html><html><body>{html_cuerpo}{firma}</body></html>"
+
+
+def armar_mime(de, para, cc, asunto_, texto, html_cuerpo, adjuntos=(), firma_html=None):
+    """El correo completo (texto + HTML + adjuntos) listo para Gmail. `adjuntos`: [(nombre, tipo_mime, bytes)]."""
+    from email.message import EmailMessage
+    from email import policy
+    msg = EmailMessage(policy=policy.SMTP)
+    msg["From"] = de
+    msg["To"] = ", ".join(para)
+    if cc:
+        msg["Cc"] = ", ".join(cc)
+    msg["Subject"] = asunto_
+    tf = texto_de_firma(firma_html) if firma_html else ""
+    msg.set_content((texto or "") + (f"\n\n-- \n{tf}\n" if tf else ""))
+    msg.add_alternative(html_para_enviar(html_cuerpo, firma_html), subtype="html")
+    for nombre, tipo, datos in adjuntos:
+        principal, _, secundario = (tipo or "application/octet-stream").partition("/")
+        msg.add_attachment(datos, maintype=principal or "application", subtype=secundario or "octet-stream", filename=nombre)
+    return msg.as_string()
+
+
+def cortes_de_adjuntos(mime):
+    """Dónde empieza cada adjunto dentro del correo armado (para mostrar cuál se está enviando)."""
+    return [m.start() for m in re.finditer(r"(?im)^Content-Disposition: attachment", mime)]

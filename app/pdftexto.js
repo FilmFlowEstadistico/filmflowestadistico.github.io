@@ -35,3 +35,18 @@ export async function textoDelPdf(buffer) {
   }
   return paginas.join("\n");
 }
+
+// Miniatura de la primera página de un PDF (para ver los adjuntos del correo). Devuelve una imagen (data URL) o null.
+export async function miniaturaPdf(buffer, ancho = 240) {
+  const pdf = await pdfjs.getDocument({ data: new Uint8Array(buffer), isEvalSupported: false }).promise;
+  try {
+    const pag = await pdf.getPage(1);
+    const v0 = pag.getViewport({ scale: 1 });
+    const esc = (ancho * 2) / v0.width;
+    const v = pag.getViewport({ scale: esc });
+    const c = document.createElement("canvas"); c.width = Math.round(v.width); c.height = Math.min(Math.round(v.height), Math.round(v.width * 1.6));
+    const ctx = c.getContext("2d"); ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, c.width, c.height);
+    await pag.render({ canvasContext: ctx, viewport: v }).promise;
+    return c.toDataURL("image/jpeg", 0.8);
+  } finally { try { pdf.destroy(); } catch (e) {} }
+}

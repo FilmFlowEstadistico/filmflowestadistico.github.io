@@ -2721,11 +2721,330 @@ def correo_prefijo(p):
         c["prefijo"] = pref
         try:
             cfg = rc.cargar_config()
-            cfg["correo"] = {"prefijo": pref}
+            _cfg_correo(cfg)["prefijo"] = pref                # (sin borrar los destinatarios ni lo enviado)
             rc.guardar_config(cfg)
         except Exception:
             pass
     return {"nada": True}
+
+
+def _cfg_correo(cfg):
+    """Lo del correo de ESTE proyecto: prefijo del asunto, destinatarios (Para/CC) y lo que ya se envió."""
+    c = cfg.get("correo")
+    if not isinstance(c, dict):
+        c = {}
+    cfg["correo"] = c
+    return c
+
+
+def _archivo_firmas():
+    return rc.CARPETA / "firmas_correo.json"
+
+
+def firmas_catalogo():
+    """Las firmas guardadas en ESTE equipo (copiadas de Gmail): [{nombre, html}]."""
+    try:
+        d = json.loads(_archivo_firmas().read_text(encoding="utf-8"))
+        return [f for f in d.get("firmas") or [] if isinstance(f, dict) and f.get("nombre") and f.get("html")]
+    except Exception:
+        return []
+
+
+def _guardar_firmas(lista):
+    tmp = _archivo_firmas().with_name("firmas_correo.json.tmp")
+    tmp.write_text(json.dumps({"firmas": lista}, ensure_ascii=False, indent=1), encoding="utf-8")
+    os.replace(tmp, _archivo_firmas())
+
+
+def _firma_del_proyecto(cc_):
+    """La firma elegida para este proyecto: {nombre, html} · {"nombre": ""} = sin firma · None = todavía no se eligió."""
+    f = cc_.get("firma")
+    return f if isinstance(f, dict) else None
+
+
+def _nombre_y_correo(d):
+    m = re.match(r'\s*"?([^"<]*?)"?\s*<([^<>]+)>\s*$', d or "")
+    return (m.group(1).strip(), m.group(2).strip()) if m else ("", (d or "").strip())
+
+
+def correo_destinos(p):
+    """La cadena de correos de ESTE proyecto (queda guardada para siempre): agregar, quitar o pasar entre Para y CC."""
+    cfg = rc.cargar_config()
+    cc_ = _cfg_correo(cfg)
+    para, cc = list(cc_.get("para") or []), list(cc_.get("cc") or [])
+    malos, toast, deshacer = [], "", None
+    op = p.get("op")
+    clave = (p.get("correo") or "").strip().lower()
+    igual = lambda d: correo_core.solo_correo(d).lower() == clave
+    if op == "agregar":
+        validos, malos = correo_core.separar_correos(p.get("texto") or "")
+        destino = cc if p.get("campo") == "cc" else para
+        otro = para if destino is cc else cc
+        nuevos = 0
+        for v in validos:
+            c = correo_core.solo_correo(v).lower()
+            if any(correo_core.solo_correo(x).lower() == c for x in destino):
+                continue
+            otro[:] = [x for x in otro if correo_core.solo_correo(x).lower() != c]      # si estaba en el otro campo, se pasa
+            destino.append(v)
+            nuevos += 1
+        toast = (f"{nuevos} {'correo agregado' if nuevos == 1 else 'correos agregados'} a {'CC' if destino is cc else 'Para'}" if nuevos
+                 else ("" if malos else "Ya estaban en la cadena"))
+    elif op == "quitar":
+        for campo, lista in (("para", para), ("cc", cc)):
+            for k, x in enumerate(lista):
+                if igual(x):
+                    deshacer = {"campo": campo, "direccion": x, "pos": k}
+                    del lista[k]
+                    toast = f"Quité a {correo_core.solo_correo(x)} de este proyecto"
+                    break
+    elif op == "volver":                                  # «Deshacer» después de quitar
+        d = p.get("deshacer") or {}
+        lista = cc if d.get("campo") == "cc" else para
+        if d.get("direccion") and not any(correo_core.solo_correo(x).lower() == correo_core.solo_correo(d["direccion"]).lower() for x in para + cc):
+            lista.insert(min(int(d.get("pos") or 0), len(lista)), d["direccion"])
+    elif op == "mover":
+        for de, a_ in ((para, cc), (cc, para)):
+            x = next((x for x in de if igual(x)), None)
+            if x:
+                de.remove(x)
+                a_.append(x)
+                toast = f"{correo_core.solo_correo(x)} pasó a {'CC' if a_ is cc else 'Para'}"
+                break
+    else:                                                 # forma antigua: el texto completo de cada campo
+        for campo in ("para", "cc"):
+            if campo in p:
+                v, m = correo_core.separar_correos(p.get(campo) or "")
+                (para if campo == "para" else cc)[:] = v
+                malos += m
+    cc_["para"], cc_["cc"] = para, correo_core.sin_repetir(cc, para)
+    rc.guardar_config(cfg)
+    return {"guardado": True, "para": len(para), "cc": len(cc_["cc"]), "malos": malos, "html": html_destinos(cfg),
+            **({"toast": toast} if toast else {}), **({"deshacer": deshacer} if deshacer else {})}
+
+
+def correo_elegir_firma(p):
+    """Quién firma el correo de este proyecto (se guarda una copia de la firma en el proyecto: así llega también al teléfono)."""
+    cfg = rc.cargar_config()
+    cc_ = _cfg_correo(cfg)
+    nombre = p.get("nombre") or ""
+    f = next((x for x in firmas_catalogo() if x["nombre"] == nombre), None)
+    if nombre and not f and (_firma_del_proyecto(cc_) or {}).get("nombre") == nombre:
+        f = _firma_del_proyecto(cc_)
+    cc_["firma"] = {"nombre": f["nombre"], "html": correo_core.limpiar_firma(f["html"])} if f else {"nombre": ""}
+    rc.guardar_config(cfg)
+    return {"firma": html_firma(cfg), "vista": vista_firma(cfg)}
+
+
+def firma_agregar(p):
+    """Guarda una firma nueva (pegada desde Gmail) y la elige para este proyecto."""
+    nombre = (p.get("nombre") or "").strip()[:60]
+    h = correo_core.limpiar_firma(p.get("html") or "")
+    if not nombre or not re.sub(r"<[^>]+>|&nbsp;|\s", "", h) and "<img" not in h:
+        return {"error": "Escribe el nombre de quien firma y pega la firma (cópiala de Gmail › Configuración › Firma)."}
+    lista = [x for x in firmas_catalogo() if x["nombre"] != nombre] + [{"nombre": nombre, "html": h}]
+    lista.sort(key=lambda x: x["nombre"].lower())
+    _guardar_firmas(lista)
+    return {**correo_elegir_firma({"nombre": nombre}), "toast": f"Firma de {nombre} guardada"}
+
+
+def firma_quitar(p):
+    nombre = p.get("nombre") or ""
+    _guardar_firmas([x for x in firmas_catalogo() if x["nombre"] != nombre])
+    cfg = rc.cargar_config()
+    cc_ = _cfg_correo(cfg)
+    if (_firma_del_proyecto(cc_) or {}).get("nombre") == nombre:
+        cc_.pop("firma", None)
+        rc.guardar_config(cfg)
+    return {"firma": html_firma(cfg), "vista": vista_firma(cfg), "toast": f"Quité la firma de {nombre}"}
+
+
+def _preparar_envio(p, correo=None, adjuntos=None):
+    """Revisa todo y arma el correo. → (datos, None) o (None, respuesta de error/pregunta).
+    `adjuntos` = [(nombre, tipo, bytes)] ya leídos (el Mac); si no, vienen en base64 dentro de `p`."""
+    import base64
+    correo = (correo if correo is not None else web_shim.ESTADO.get("correo") or "").strip()
+    if not correo_core.puede_enviar(correo):
+        return None, {"error": f"Solo la cuenta {', '.join(correo_core.AUTORIZADOS_ENVIO)} puede enviar el correo desde la app. "
+                               "Con tu cuenta usa «Copiar texto» y «Copiar asunto»."}
+    cfg = rc.cargar_config()
+    cc_ = _cfg_correo(cfg)
+    fuera = {x.strip().lower() for x in p.get("fuera") or []}
+    para = [x for x in cc_.get("para") or [] if correo_core.solo_correo(x).lower() not in fuera]
+    cc = [x for x in correo_core.sin_repetir(cc_.get("cc"), para) if correo_core.solo_correo(x).lower() not in fuera]
+    if not para:
+        return None, {"error": "Falta a quién enviarlo: agrega al menos un correo en «Para» (Destinatarios de este proyecto)."}
+    asunto_ = (p.get("asunto") or "").strip()
+    if not asunto_:
+        return None, {"error": "Falta el asunto."}
+    if adjuntos is None:
+        adjuntos = [(a_.get("nombre") or "archivo", a_.get("tipo") or "application/octet-stream", base64.b64decode(a_.get("datos") or ""))
+                    for a_ in p.get("adjuntos") or []]
+    total = sum(len(x[2]) for x in adjuntos)
+    if total > correo_core.LIMITE_ADJUNTOS:
+        return None, {"error": f"Los adjuntos pesan {total / 1e6:.1f} MB y Gmail deja hasta 25 MB por correo. Quita algunos o mándalos en dos correos."}
+    enviados = cc_.get("enviados") or []
+    if not p.get("forzar") and any(e.get("asunto") == asunto_ for e in enviados):
+        ya = next(e for e in enviados if e.get("asunto") == asunto_)
+        return None, {"confirmar_envio": f"Este correo («{asunto_}») ya se envió el {ya.get('fecha', '')}. ¿Lo envío otra vez?"}
+    firma = (_firma_del_proyecto(cc_) or {}).get("html") or None
+    mime = correo_core.armar_mime(f"Data Management Colombia FilmFlow <{correo}>", para, cc, asunto_, p.get("texto") or "",
+                                  p.get("html") or "", adjuntos, firma)
+    return {"mime": mime, "para": para, "cc": cc, "asunto": asunto_, "adjuntos": len(adjuntos), "total": total}, None
+
+
+def _respuesta_de_gmail(codigo, texto, correo):
+    t = str(texto or "").lower()
+    if codigo == 403 and ("insufficient" in t or "scope" in t):
+        return {"pedir_permiso": {"scope": correo_core.PERMISO_ENVIAR, "reintentar_envio": True,
+                                  "texto": "Para enviar el correo desde la app, Google pide un permiso más: «Enviar correo electrónico en tu nombre». "
+                                           "La app solo podrá ENVIAR (no puede leer tu correo).\n\nToca «Dar permiso», elige "
+                                           f"{correo} y deja MARCADA esa casilla."}}
+    if codigo == 403 and ("accessnotconfigured" in t or "has not been used" in t or "disabled" in t):
+        return {"error": "Google todavía no tiene activado el envío de correos para la app (Gmail API en Google Cloud). "
+                         "Avísale a quien administra la app."}
+    if codigo == 401:
+        return {"auth401": True, "error": "La sesión de Google venció. Vuelve a entrar e inténtalo otra vez."}
+    if codigo == 0:
+        return {"error": "No hay conexión con Gmail (revisa tu internet). Nada se envió."}
+    return {"error": f"Gmail no aceptó el correo (código {codigo}). Nada se envió.\n\n{str(texto)[:300]}"}
+
+
+def correo_armar(p):
+    """Arma el correo completo; la página lo sube a Gmail ella misma (así se ve el avance de cada adjunto)."""
+    d, r = _preparar_envio(p)
+    if r:
+        return r
+    return {"mime": d["mime"], "url": correo_core.URL_ENVIAR, "cortes": correo_core.cortes_de_adjuntos(d["mime"]),
+            "para": len(d["para"]), "cc": len(d["cc"]), "asunto": d["asunto"], "total": d["total"]}
+
+
+def correo_resultado(p):
+    """La página cuenta cómo le fue con Gmail: se guarda en el historial (si salió) o se traduce el error."""
+    codigo = int(p.get("codigo") or 0)
+    if codigo not in (200, 201):
+        return _respuesta_de_gmail(codigo, p.get("texto"), web_shim.ESTADO.get("correo") or "")
+    from datetime import datetime as _dt
+    cfg = rc.cargar_config()
+    cc_ = _cfg_correo(cfg)
+    registro = {"asunto": p.get("asunto") or "", "fecha": _dt.now().strftime("%d/%m/%Y %H:%M"), "para": int(p.get("para") or 0),
+                "cc": int(p.get("cc") or 0), "adjuntos": int(p.get("adjuntos") or 0), "mb": round(float(p.get("total") or 0) / 1e6, 1),
+                "firma": (_firma_del_proyecto(cc_) or {}).get("nombre") or ""}
+    enviados = cc_.setdefault("enviados", [])
+    enviados.insert(0, registro)
+    del enviados[60:]
+    rc.guardar_config(cfg)
+    return {"enviado": registro, "toast": f"Correo enviado a {registro['para'] + registro['cc']} personas con {registro['adjuntos']} adjuntos"}
+
+
+def correo_enviar(p):
+    """Plan B: el Python envía el correo él mismo (si la página no pudo hablar con Gmail directamente)."""
+    d, r = _preparar_envio(p)
+    if r:
+        return r
+    codigo, texto = web_shim.enviar_crudo(correo_core.URL_ENVIAR, d["mime"], "message/rfc822")
+    if codigo not in (200, 201):
+        return _respuesta_de_gmail(codigo, texto, web_shim.ESTADO.get("correo") or "")
+    return correo_resultado({"codigo": 200, "asunto": d["asunto"], "para": len(d["para"]), "cc": len(d["cc"]),
+                             "adjuntos": d["adjuntos"], "total": d["total"]})
+
+
+def _chip_correo(d, campo):
+    nombre, correo = _nombre_y_correo(d)
+    otro = "CC" if campo == "para" else "Para"
+    return (f'<span class="chip-c" data-correo="{esc(correo.lower())}" title="Toca para NO enviarle a {esc(correo)} solo esta vez (sigue en la cadena)">'
+            f'<span class="chip-t">{f"<b>{esc(nombre)}</b> " if nombre else ""}<small>{esc(correo)}</small></span>'
+            f'<button type="button" class="chip-mover" data-correo="{esc(correo)}" title="Pasar a {otro}" aria-label="Pasar a {otro}">{"↓" if campo == "para" else "↑"}</button>'
+            f'<button type="button" class="chip-x" data-correo="{esc(correo)}" title="Quitar de la cadena de este proyecto" aria-label="Quitar">✕</button></span>')
+
+
+VISIBLES_CADENA = 6        # con más personas, la fila se pliega («+N más»)
+
+
+def html_destinos(cfg):
+    """Para y CC arriba del correo, como en Gmail (fichas). Se vuelve a dibujar sola al agregar/quitar."""
+    cc_ = _cfg_correo(cfg)
+    para, cc = cc_.get("para") or [], cc_.get("cc") or []
+
+    def fila(campo, lista, etq, ayuda):
+        mas = len(lista) - VISIBLES_CADENA
+        chips = "".join(_chip_correo(x, campo) for x in lista)
+        if mas > 0:
+            chips += (f'<button type="button" class="chip-mas" data-js="ver_cadena" data-campo="{campo}" '
+                      f'title="Ver toda la cadena de {etq}">+{mas} más</button>')
+        if not lista:
+            chips = '<span class="c-vacio">Nadie todavía</span>'
+        if campo == "cc":
+            chips += '<button type="button" class="chip-agregar" data-js="dest_mostrar_agregar" title="Agregar correos a la cadena de este proyecto">+ Agregar</button>'
+        return (f'<div class="c-fila"><span class="c-etq" title="{ayuda}">{etq} <small id="n-{campo}">{len(lista)}</small></span>'
+                f'<div class="chips-correo{" muchas" if mas > 0 else ""}" data-campo="{campo}">{chips}</div></div>')
+
+    agregar = ('<div class="agregar-correo"' + ('' if not (para or cc) else ' hidden') + '>'
+               '<textarea id="nuevo-correo" rows="1" spellcheck="false" placeholder="Pega uno o varios correos" '
+               'title="Escribe o pega correos: uno por línea, separados por coma, o «Nombre &lt;correo&gt;». Quedan guardados en este proyecto."></textarea>'
+               '<button type="button" class="btn mini acento" data-js="dest_agregar_para" title="Agregar estos correos a «Para»">+ Para</button>'
+               '<button type="button" class="btn mini" data-js="dest_agregar_cc" title="Agregar estos correos a «CC» (con copia)">+ CC</button></div>'
+               '<p class="nota" id="destinos-aviso"></p>')
+    return (f'<div id="destinos" class="c-destinos">{fila("para", para, "Para", "Destinatarios principales de este proyecto")}'
+            f'{fila("cc", cc, "CC", "Con copia: el resto de la cadena de este proyecto")}{agregar}</div>')
+
+
+def vista_firma(cfg):
+    """La firma como saldrá al final del correo (debajo del texto, en la vista del correo)."""
+    f = _firma_del_proyecto(_cfg_correo(cfg))
+    if not f or not f.get("html"):
+        return ""
+    return f'<div class="firma-sep">-- </div>{correo_core.limpiar_firma(f["html"])}'
+
+
+def html_firma(cfg):
+    """Quién firma: elegida = solo esa (con «Cambiar»); sin elegir = todas las opciones."""
+    cc_ = _cfg_correo(cfg)
+    f = _firma_del_proyecto(cc_)
+    elegida = (f or {}).get("nombre")
+    cat = firmas_catalogo()
+    if f and f.get("nombre") and not any(x["nombre"] == f["nombre"] for x in cat):
+        cat = cat + [f]                                   # la del proyecto (llegó de otro equipo) aunque aquí no esté guardada
+    ops = "".join(f'<button type="button" class="firma-op{" on" if x["nombre"] == elegida else ""}" data-firma="{esc(x["nombre"])}" '
+                  f'title="Firmar como {esc(x["nombre"])}">{esc(x["nombre"])}</button>' for x in cat)
+    ops += (f'<button type="button" class="firma-op{" on" if f is not None and not elegida else ""}" data-firma="" '
+            'title="Enviar sin firma">Sin firma</button>'
+            '<button type="button" class="firma-op mas" data-js="firma_nueva" title="Pegar una firma copiada de Gmail (Configuración › Firma)">+ Agregar firma…</button>'
+            + (f'<button type="button" class="firma-op mas" data-js="firma_borrar" data-firma="{esc(elegida)}" title="Quitar la firma de {esc(elegida)} de este equipo (en Gmail sigue igual)">Quitar esta</button>' if elegida else ""))
+    if f is None:
+        actual = '<span class="c-vacio">Elige quién firma (la app lo recuerda en este proyecto)</span>'
+        abierta = True
+    else:
+        actual = (f'<b class="firma-actual">{esc(elegida) if elegida else "Sin firma"}</b>'
+                  '<button type="button" class="enlace" data-js="firma_cambiar" title="Elegir otra firma para este proyecto">Cambiar</button>')
+        abierta = False
+    return (f'<div id="tarjeta-firma" class="c-firma-elegir{" cambiando" if abierta else ""}"><div class="c-fila">'
+            f'<span class="c-etq" title="Quién firma el correo de este proyecto">Firma</span><div class="firma-linea">{actual}</div></div>'
+            f'<div class="firmas">{ops}</div></div>')
+
+
+def html_adjuntos():
+    return ('<div class="c-adjuntos"><div class="c-fila"><span class="c-etq" title="Los archivos del día que van en este correo">Adjuntos</span>'
+            '<div class="adj-total"><span class="nota" id="adj-texto">Ninguno todavía</span>'
+            '<button type="button" class="enlace" data-js="adj_quitar_todo" title="Quitar todos los adjuntos" hidden>Quitar todos</button></div></div>'
+            '<div id="adj-lista" class="adj-lista"></div>'
+            '<div class="adj-zona" id="adj-zona" title="Arrastra aquí los archivos del día (o usa los botones)">'
+            '📎 Arrastra aquí los archivos (o una carpeta) ·'
+            '<button type="button" class="enlace" data-js="adj_elegir" title="Elegir uno o varios archivos para adjuntar">Elegir archivos</button>·'
+            '<button type="button" class="enlace" data-js="adj_carpeta" title="Adjuntar todos los archivos de una carpeta">Elegir carpeta</button></div></div>')
+
+
+def html_envio(cfg, autorizado, correo):
+    """Debajo del correo: enviar (solo la cuenta autorizada), avance y último enviado."""
+    cc_ = _cfg_correo(cfg)
+    if not autorizado:
+        return H.aviso("info", f"Enviar desde la app solo se puede con la cuenta {', '.join(correo_core.AUTORIZADOS_ENVIO)}"
+                       + (f" (entraste con {correo})" if correo else "") + ". Usa «Copiar texto» y «Copiar asunto» y pégalos en tu correo.")
+    ult = (cc_.get("enviados") or [None])[0]
+    hecho = (f'<p class="nota">Último enviado: «{esc(ult["asunto"])}» el {esc(ult["fecha"])} · {ult["adjuntos"]} adjuntos'
+             + (f' · firma {esc(ult["firma"])}' if ult.get("firma") else "") + '</p>' if ult else "")
+    return ('<div class="envio-progreso" id="envio-progreso" hidden><div class="pista"><div class="relleno" id="envio-barra"></div></div>'
+            '<span class="nota" id="envio-texto"></span></div><p class="sub" id="correo-enviado"></p>' + hecho)
 
 
 def pagina_correo(p=None):
@@ -2733,31 +3052,43 @@ def pagina_correo(p=None):
     if c and c.get("proyecto") not in (None, rc.listar_proyectos()[1]):
         E["correo"] = c = None
     nombre = (c or {}).get("pdf")
-    cuerpo = (f'<div class="pdf-zona{" listo" if nombre else ""}"><div class="ico-pdf">{ICO_PDF}</div>'
-              f'<div class="nombre" id="correo-pdf">{esc(nombre) if nombre else "Elige el PDF del día"}</div>'
-              '<p class="nota">Elige el PDF de Silverstack del día (el mismo de «Registrar día») y aquí sale el correo armado, listo para copiar. '
-              'No escribe nada en tus hojas.</p>'
-              f'<button class="btn {"mini" if nombre else "acento"}" data-js="elegir_pdf_correo">{"Cambiar PDF…" if nombre else "Elegir PDF…"}</button>'
-              + (H.boton("Usar el de «Registrar día»", "correo_usar_registro", "mini") if E.get("pdf") else "")
-              + '</div>')
+    if nombre:
+        d = (c or {}).get("datos")
+        info = f"Día {d['dia']:03d} · {d['fecha']:%d/%m/%Y} · unidad {d['unidad']}" if d else ""
+        cuerpo = (f'<div class="pdf-fila"><div class="ico-pdf">{ICO_PDF}</div><div class="pdf-txt"><b id="correo-pdf" title="{esc(nombre)}">{esc(nombre)}</b>'
+                  f'<span class="nota">{esc(info)}</span></div>'
+                  '<button class="btn mini" data-js="elegir_pdf_correo" title="Elegir otro PDF de Silverstack">Cambiar PDF…</button></div>')
+    else:
+        cuerpo = (f'<div class="pdf-zona"><div class="ico-pdf">{ICO_PDF}</div>'
+                  '<div class="nombre" id="correo-pdf">Elige el PDF del día</div>'
+                  '<p class="nota">El PDF de Silverstack del día (el mismo de «Registrar día»): con él se arman el asunto y el texto. No escribe nada en tus hojas.</p>'
+                  '<button class="btn acento" data-js="elegir_pdf_correo">Elegir PDF…</button>'
+                  + (H.boton("Usar el de «Registrar día»", "correo_usar_registro", "mini") if E.get("pdf") else "")
+                  + '</div>')
     if c and c.get("error"):
         cuerpo += H.aviso("error", c["error"])
+    try:
+        cfg_c = rc.cargar_config()
+    except ErrorRegistro:
+        return {"pagina": "correo", "html": cuerpo}
+    correo_sesion = web_shim.ESTADO.get("correo") or ""
+    puede = correo_core.puede_enviar(correo_sesion)
+    asunto_html = '<div class="c-falta">Asunto</div>'
+    texto_html = '<div class="c-falta texto">El asunto y el texto se arman solos al elegir el PDF del día (arriba).</div>'
+    avisos, botones_copiar = [], ""
     if c and c.get("datos"):
         datos = c["datos"]
         reporte = c["reporte"]
-        nota = f"Día {datos['dia']:03d} · {datos['fecha']:%d/%m/%Y} · unidad {datos['unidad']}. No escribe nada en tus hojas."
         if reporte.get("fecha_dudosa"):
-            nota += f"  Ojo: la fecha del reporte no es confiable; usé el día de descarga ({reporte['fecha']:%d/%m/%Y})."
-        cuerpo += H.aviso("aviso" if reporte.get("fecha_dudosa") else "info", nota)
+            cuerpo += H.aviso("aviso", f"Ojo: la fecha del reporte no es confiable; usé el día de descarga ({reporte['fecha']:%d/%m/%Y}).")
         o = correo_core.opciones_automaticas(c["proyecto"], datos, {"prefijo": c.get("prefijo")})
         r = correo_core.armar(datos, o)
         lineas = ""
-        for k, linea in enumerate(r["lineas"]):
+        for linea in r["lineas"]:
             if not linea:
                 lineas += '<div class="l v"><br></div>'
             else:
                 lineas += '<div class="l">' + "".join(f"<b>{esc(t)}</b>" if b else esc(t) for t, b in linea if t) + "</div>"
-        avisos = []
         if datos["sin_reconocer"]:
             avisos.append("No reconozco estos rollos: " + ", ".join(datos["sin_reconocer"]) +
                           ". Cuentan en los totales, pero no salen en las líneas de cámara. Agrégalos en «Ajustes».")
@@ -2765,13 +3096,27 @@ def pagina_correo(p=None):
             avisos.append("No encontré cámaras con material en este reporte. Revisa tus rollos en «Ajustes».")
         if not datos["hay_audio"]:
             avisos.append("Este reporte no trae audio: el correo sale sin la parte de sonido.")
-        cuerpo += ('<section class="tarjeta"><h3>Correo</h3><div class="papel"><input id="correo-asunto" class="asunto" value="' + esc(r["asunto"]) + '">'
-                   f'<hr><div id="correo-texto" class="texto-correo" contenteditable="true" spellcheck="false">{lineas}</div></div>'
-                   + "".join(f'<p class="nota aviso-txt">{esc(x)}</p>' for x in avisos)
-                   + '<div class="barra-mini llena"><button class="btn acento" data-js="copiar_correo">Copiar texto</button>'
-                     '<button class="btn" data-js="copiar_asunto">Copiar asunto</button></div>'
-                     '<div class="barra-mini llena"><button class="btn" data-js="compartir_correo">Compartir…</button></div><p class="sub" id="correo-copiado"></p>'
-                     '<p class="nota">Puedes corregir el texto o el asunto aquí antes de copiarlo. Si cambias el prefijo del asunto, la app lo recuerda para este proyecto.</p></section>')
+        asunto_html = (f'<input id="correo-asunto" class="asunto" value="{esc(r["asunto"])}" title="El asunto del correo (lo puedes corregir; '
+                       'si cambias el prefijo, la app lo recuerda para este proyecto)">')
+        texto_html = (f'<div id="correo-texto" class="texto-correo" contenteditable="true" spellcheck="false" '
+                      f'title="El texto del correo: lo puedes corregir aquí antes de enviarlo o copiarlo">{lineas}</div>')
+        botones_copiar = ('<button type="button" class="enlace" data-js="copiar_correo" title="Copiar el texto con sus negritas para pegarlo en Gmail">Copiar texto</button>'
+                          '<button type="button" class="enlace" data-js="copiar_asunto" title="Copiar el asunto">Copiar asunto</button>'
+                          '<button type="button" class="enlace" data-js="compartir_correo" title="Mandar el texto con otra app">Compartir…</button>')
+    de = (f'<div class="c-fila c-de"><span class="c-etq">De</span><span>Data Management Colombia FilmFlow &lt;{esc(correo_sesion)}&gt;</span></div>'
+          if puede else "")
+    papel = ('<div class="papel correo-comp">' + de + html_destinos(cfg_c)
+             + f'<div class="c-asunto">{asunto_html}</div>'
+             + f'<div class="c-cuerpo">{texto_html}</div>'
+             + "".join(f'<p class="nota aviso-txt">{esc(x)}</p>' for x in avisos)
+             + html_adjuntos()
+             + (html_firma(cfg_c) if puede else "")
+             + f'<div id="correo-firma" class="firma-vista" title="La firma tal como sale al final del correo">{vista_firma(cfg_c) if puede else ""}</div>'
+             + '</div>')
+    enviar = ('<button class="btn acento" data-js="correo_enviar" title="Enviar el correo con sus adjuntos a la cadena de este proyecto">Enviar correo</button>'
+              '<button class="btn" data-js="correo_detener" hidden title="Detener el envío (no se manda nada)">Detener envío</button>' if puede else "")
+    acciones = f'<div class="correo-acciones">{enviar}<span class="copiar">{botones_copiar}</span></div><p class="sub" id="correo-copiado"></p>'
+    cuerpo += papel + acciones + html_envio(cfg_c, puede, correo_sesion)
     return {"pagina": "correo", "html": cuerpo}
 
 
@@ -2886,7 +3231,7 @@ ACCIONES = {k: v for k, v in globals().items() if callable(v) and not k.startswi
     "mover_rollo", "elegir_proyecto", "renombrar_pedir", "renombrar_ok", "nuevo_pedir", "nuevo_ok", "nuevo_conectar", "eliminar_proyecto", "eliminar_ok",
     "correo_pdf", "correo_usar_registro", "correo_prefijo", "cuenta", "sincronizar", "sync_enlace", "nuevo_dia",
     "reporte_abrir", "reporte_cerrar", "reporte_tipo", "reporte_tocar", "reporte_mes", "reporte_rango", "reporte_unidad", "reporte_modo", "reporte_contenido",
-    "reporte_crear", "reporte_semana", "reporte_semanas", "reporte_preset", "reporte_seccion", "reporte_orden", "reporte_modo_rapido", "reporte_nombre", "resumen_panel", "resumen_muestra", "color_en_hojas_ok", "equipo_agregar", "equipo_cancelar", "equipo_guardar", "equipo_dar_acceso", "equipo_quitar", "equipo_quitar_ok", "unirse", "unirse_pedir"}}
+    "reporte_crear", "reporte_semana", "reporte_semanas", "reporte_preset", "reporte_seccion", "reporte_orden", "reporte_modo_rapido", "reporte_nombre", "resumen_panel", "resumen_muestra", "correo_destinos", "correo_elegir_firma", "firma_agregar", "firma_quitar", "correo_armar", "correo_resultado", "correo_enviar", "color_en_hojas_ok", "equipo_agregar", "equipo_cancelar", "equipo_guardar", "equipo_dar_acceso", "equipo_quitar", "equipo_quitar_ok", "unirse", "unirse_pedir"}}
 
 
 def _firma_config():

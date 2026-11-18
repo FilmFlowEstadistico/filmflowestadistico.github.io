@@ -5,13 +5,13 @@ const ARCHIVOS = ["web_shim.py", "movil_html.py", "movil_api.py", "tema_web.py",
   "estadistico_core.py", "resumen_core.py", "reporte_core.py", "cruce_core.py", "correo_core.py", "sync_core.py", "config_inicial.json"];
 let hubo401 = false;
 
-self.sheetsXHR = (metodo, url, cuerpo, token) => {
-  if (sheetsBase !== REAL) url = url.replace(REAL, sheetsBase).replace("https://www.googleapis.com/drive", sheetsBase + "/drive");
+self.sheetsXHR = (metodo, url, cuerpo, token, tipo) => {
+  if (sheetsBase !== REAL) url = url.replace(REAL, sheetsBase).replace("https://www.googleapis.com/drive", sheetsBase + "/drive").replace("https://gmail.googleapis.com", sheetsBase + "/gmail");
   const x = new XMLHttpRequest();
   x.open(metodo, url, false);
   try { x.timeout = 45000; } catch (_) {}        // con señal débil una petición no puede dejar la app trabada para siempre
   x.setRequestHeader("Authorization", "Bearer " + token);
-  if (cuerpo != null) x.setRequestHeader("Content-Type", "application/json");
+  if (cuerpo != null) x.setRequestHeader("Content-Type", tipo || "application/json");
   try { x.send(cuerpo); } catch (e) { return [0, String(e && e.name === "TimeoutError" ? "Google tardó más de 45 s en responder" : e)]; }
   if (x.status === 401) hubo401 = true;
   return [x.status, x.responseText];
@@ -78,6 +78,10 @@ def _t(m, u, c, tok):
     r = js.sheetsXHR(m, u, c, tok)
     return int(r[0]), str(r[1])
 web_shim.ESTADO["transporte"] = _t
+def _tc(m, u, c, tok, tipo):
+    r = js.sheetsXHR(m, u, c, tok, tipo)
+    return int(r[0]), str(r[1])
+web_shim.ESTADO["transporte_crudo"] = _tc
 import movil_api
 movil_api.iniciar()
 `); } catch (e) { throw new Error("Falló al preparar los módulos de Python: " + txtError(e) + (errPy.length ? "\n" + errPy.join("\n").slice(-500) : "")); }

@@ -259,7 +259,7 @@ async function llamar(nombre, p = {}) {
   return out.r;
 }
 // «Silenciosas»: no ponen nada en pantalla mientras trabajan. «Bloqueantes»: tapan la pantalla (escriben o tardan). El resto: barra de progreso arriba.
-const SILENCIOSAS = new Set(["resumen_muestra", "resumen_panel", "reporte_seccion", "reporte_orden", "reporte_modo_rapido", "reporte_nombre", "marcar", "marcar_seg", "alternar_vista", "mas_hallazgos", "decision", "casilla", "unidad", "correo_prefijo", "cancelar_formulario",
+const SILENCIOSAS = new Set(["correo_destinos", "correo_elegir_firma", "firma_agregar", "firma_quitar", "correo_armar", "correo_resultado", "correo_enviar", "resumen_muestra", "resumen_panel", "reporte_seccion", "reporte_orden", "reporte_modo_rapido", "reporte_nombre", "marcar", "marcar_seg", "alternar_vista", "mas_hallazgos", "decision", "casilla", "unidad", "correo_prefijo", "cancelar_formulario",
   "conectar_cancelar", "importar_cancelar", "mover_rollo", "quitar_rollo", "editar_rollo", "agregar_rollo", "renombrar_pedir", "nuevo_pedir", "eliminar_proyecto",
   "quitar_estadistico", "quitar_estatus", "estatus_principal", "ir", "corregir_cruce", "corregir_errores", "escribir", "conectar_abrir"]);
 const TEXTO_OCUPADO = { revisar: "Leyendo el PDF y tus hojas de Google…", escribir_ok: "Escribiendo en tus hojas y comprobándolas…",
@@ -576,6 +576,12 @@ function posprocesar() {
   vista.querySelectorAll("form").forEach(alternarTipo);
   $("#btn-actualizar").style.display = actual === "resumen" ? "" : "none";
   if (actual === "app") { pintarDescanso(); pintarVersion(); }
+  if (actual === "correo") {
+    const pr = ($("#proyecto-nombre") || {}).textContent || "";
+    if (pr !== proyectoDelCorreo) { fueraEstaVez.clear(); proyectoDelCorreo = pr; }
+    pintarAdjuntos(); aplicarFuera();
+    if (enviando) modoEnviando(true);
+  }
   vista.querySelectorAll('.seg[data-js="tema"]').forEach((b) => b.classList.toggle("on", b.dataset.v === (leer("ff-tema") || "auto")));
 }
 function alternarTipo(form) {
@@ -772,6 +778,25 @@ const JS = {
     inp.click();
   },
   async elegir_pdf() { const d = await elegirPdf(); if (d) mostrar(await api("pdf_elegido", d)); },
+  adj_elegir() { elegirAdjuntos(false); },
+  adj_carpeta() { elegirAdjuntos(true); },
+  adj_quitar_todo() { if (enviando) return; quitarAdjuntos(); pintarAdjuntos(); },
+  async correo_enviar() { await enviarCorreo(false); },
+  correo_detener() { if (envioXhr) envioXhr.abort(); },
+  ver_cadena(el) { const c = el.closest(".chips-correo"); const k = c.dataset.campo; cadenasAbiertas.has(k) ? cadenasAbiertas.delete(k) : cadenasAbiertas.add(k); aplicarFuera(); },
+  dest_mostrar_agregar() { const a = $(".agregar-correo"); if (a) { a.hidden = !a.hidden; if (!a.hidden) $("#nuevo-correo")?.focus(); } },
+  firma_cambiar() { $("#tarjeta-firma")?.classList.toggle("cambiando"); },
+  dest_agregar_para() { agregarDestinos("para"); },
+  dest_agregar_cc() { agregarDestinos("cc"); },
+  async dest_deshacer() { if (ultimoQuitado) { const d = ultimoQuitado; ultimoQuitado = null; const av = $("#destinos-aviso"); if (av) delete av.dataset.fijo; await opDestinos({ op: "volver", deshacer: d }); toast("Listo, volvió a la cadena"); } },
+  firma_nueva() { editorFirma(); },
+  async firma_borrar(el) {
+    if (!(await modal({ titulo: "¿Quitar esta firma?", texto: `La firma de ${el.dataset.firma} se quita de la lista de este equipo (en Gmail sigue igual).`, si: "Quitar" }))) return;
+    const r = await api("firma_quitar", { nombre: el.dataset.firma });
+    const tj = $("#tarjeta-firma"); if (r && tj && r.firma) tj.outerHTML = r.firma;
+    const v = $("#correo-firma"); if (r && v) v.innerHTML = r.vista || "";
+    if (r && r.toast) toast(r.toast);
+  },
   async elegir_pdf_correo() { const d = await elegirPdf(); if (d) mostrar(await api("correo_pdf", d)); },
   async copiar_correo() {
     const ls = lineasDelCorreo(), texto = ls.map((l) => l.map((x) => x[0]).join("")).join("\n");
@@ -1422,7 +1447,7 @@ async function procesarInvitacion() {
   if ("serviceWorker" in navigator && !PRUEBA && !MAC) activarActualizaciones();
   if (MAC) setTimeout(() => revisarVersionMac(false), 6000);
   const inicial = new URLSearchParams(location.search).get("p") || "resumen";
-  window.__ff = { api, ir, listo: true, get sesion() { return sesion; }, sincronizar, MAC };
+  window.__ff = { api, ir, listo: true, get sesion() { return sesion; }, sincronizar, MAC, adjuntar: (l) => agregarAdjuntos(l) };
   if (MAC) setInterval(() => { if (!document.hidden) revisarVersionMac(false); }, 6 * 3600 * 1000);
   try { const c = await llamar("cuenta", {}); if (c && c.proyectos) actualizarProyectos(c.proyectos); } catch (e) {}
   if (sinSesion && !leer("ff-correo")) return;       // sigue en la pantalla de inicio hasta que conecte
@@ -1470,3 +1495,440 @@ document.addEventListener("click", (e) => {
 }, true);
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") cerrarBurbuja(); });
 addEventListener("scroll", () => cerrarBurbuja(), { passive: true });
+
+// ---------- Correo: cadena del proyecto, firma, adjuntos (con vista previa y estado de cada uno) y envío desde la app ----------
+// Los archivos se quedan en la pantalla (no se guardan en ninguna parte) hasta que se envía el correo.
+let adjuntos = [], nAdj = 0, envioXhr = null, enviando = false, ultimoQuitado = null;
+const fueraEstaVez = new Set();
+let proyectoDelCorreo = "";
+const cadenasAbiertas = new Set();     // «+N más» abierto (Para / CC)                    // correos de la cadena a los que NO se envía solo esta vez
+const LIMITE_ADJ = 25 * 1000 * 1000;
+const mb = (b) => (b / 1e6).toFixed(b < 1e7 ? 1 : 0) + " MB";
+const extDe = (n) => ((n || "").includes(".") ? n.split(".").pop() : "").toLowerCase();
+const escH = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+const TIPOS_EXT = { pdf: "application/pdf", csv: "text/csv", txt: "text/plain", xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  xls: "application/vnd.ms-excel", docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", png: "image/png", jpg: "image/jpeg",
+  jpeg: "image/jpeg", gif: "image/gif", zip: "application/zip", mov: "video/quicktime", mp4: "video/mp4", ale: "text/plain", xml: "text/xml", json: "application/json" };
+const TEXTO_ESTADO = { leyendo: "Preparando", listo: "Listo", error: "No se pudo leer", espera: "En espera", enviando: "Enviando", enviado: "Enviado ✓" };
+
+function agregarAdjuntos(lista) {
+  if (enviando) { toast("Espera a que termine el envío"); return; }
+  if (adjuntos.length && adjuntos.every((a) => a.estado === "enviado")) quitarAdjuntos();     // el correo anterior ya salió: se empieza otro
+  let nuevos = 0, repetidos = 0;
+  for (const f of lista) {
+    if (!f || !f.size || f.name.startsWith(".")) continue;                 // (archivos ocultos de las carpetas, p. ej. .DS_Store)
+    if (adjuntos.some((a) => a.nombre === f.name && a.size === f.size)) { repetidos++; continue; }
+    const a = { id: ++nAdj, file: f, nombre: f.name, size: f.size, tipo: f.type || TIPOS_EXT[extDe(f.name)] || "application/octet-stream", estado: "leyendo", pct: 0 };
+    adjuntos.push(a); nuevos++;
+    leerAdjunto(a); miniatura(a);
+  }
+  ordenarAdjuntos();
+  pintarAdjuntos();
+  if (nuevos) toast(nuevos === 1 ? "1 archivo adjuntado" : nuevos + " archivos adjuntados");
+  else if (repetidos) toast(repetidos === 1 ? "Ese archivo ya estaba adjunto" : "Esos archivos ya estaban adjuntos");
+}
+// orden fijo: por tipo (PDF, CSV, hojas de cálculo, texto, imágenes, lo demás) y dentro de cada tipo por nombre (A2 antes que A10)
+const ORDEN_TIPO = ["pdf", "csv", "xlsx", "xls", "numbers", "txt", "ale", "xml", "json", "png", "jpg", "jpeg", "gif", "zip"];
+function ordenarAdjuntos() {
+  const rango = (a) => { const k = ORDEN_TIPO.indexOf(extDe(a.nombre)); return k < 0 ? 99 : k; };
+  adjuntos.sort((x, y) => rango(x) - rango(y) || extDe(x.nombre).localeCompare(extDe(y.nombre)) || x.nombre.localeCompare(y.nombre, "es", { numeric: true, sensitivity: "base" }));
+}
+function quitarAdjuntos() {
+  for (const a of adjuntos) { try { if (a.url) URL.revokeObjectURL(a.url); } catch (e) {} }
+  if (MAC && adjuntos.length) mac("adjunto_quitar", { ids: adjuntos.map((a) => a.id) }).catch(() => {});
+  adjuntos = [];
+}
+function leerAdjunto(a) {
+  if (MAC) return guardarEnMac(a);
+  leerBase64(a);
+}
+// En el Mac el archivo se le pasa al Mac apenas se agrega, tal cual (sin convertir): al enviar ya está allá y sale de inmediato
+function guardarEnMac(a) {
+  const x = new XMLHttpRequest();
+  x.open("POST", "/mac/adjunto_guardar");
+  x.setRequestHeader("X-FF-Clave", CLAVE_MAC); x.setRequestHeader("X-FF-Id", String(a.id));
+  x.setRequestHeader("X-FF-Nombre", encodeURIComponent(a.nombre)); x.setRequestHeader("X-FF-Tipo", a.tipo);
+  x.upload.onprogress = (e) => { if (e.lengthComputable) { a.pct = e.loaded / e.total; actualizarAdjunto(a); } };
+  x.onload = () => { if (x.status === 200) { a.ref = a.id; a.estado = "listo"; a.pct = 1; } else { a.estado = "error"; a.error = "el Mac no lo recibió (" + x.status + ")"; } actualizarAdjunto(a); };
+  x.onerror = () => { a.estado = "error"; a.error = "el Mac no lo recibió"; actualizarAdjunto(a); };
+  x.send(a.file);
+}
+function leerBase64(a) {
+  const r = new FileReader();
+  r.onprogress = (e) => { if (e.lengthComputable) { a.pct = e.loaded / e.total; actualizarAdjunto(a); } };
+  r.onload = () => { a.datos = String(r.result).split(",")[1] || ""; a.estado = "listo"; a.pct = 1; actualizarAdjunto(a); };
+  r.onerror = () => { a.estado = "error"; a.error = String(r.error && r.error.message || r.error || "no se pudo leer"); actualizarAdjunto(a); };
+  r.readAsDataURL(a.file);
+}
+async function miniatura(a) {
+  const e = extDe(a.nombre);
+  try {
+    if (a.tipo.startsWith("image/")) { a.url = URL.createObjectURL(a.file); a.mini = `<img src="${a.url}" alt="">`; }
+    else if (e === "pdf" && a.size < 60e6) {
+      a.url = URL.createObjectURL(a.file);
+      const m = await import("./pdftexto.js");
+      const dataUrl = await m.miniaturaPdf(await a.file.arrayBuffer(), 240);
+      if (dataUrl) a.mini = `<img src="${dataUrl}" alt="">`;
+    } else if (["csv", "txt", "ale", "xml", "json"].includes(e)) {
+      a.texto = await a.file.slice(0, 20000).text();
+      a.mini = `<pre>${escH(a.texto.slice(0, 400))}</pre>`;
+    }
+  } catch (err) {}
+  if (!a.mini) a.mini = `<span class="adj-ext">${escH((e || "archivo").toUpperCase().slice(0, 5))}</span>`;
+  actualizarAdjunto(a);
+}
+function htmlAdj(a) {
+  const pct = Math.round((a.pct || 0) * 100);
+  const txt = TEXTO_ESTADO[a.estado] + (a.estado === "leyendo" || a.estado === "enviando" ? ` ${pct}%` : "");
+  return `<div class="adj-it e-${a.estado}" data-id="${a.id}" title="${escH(a.nombre)} · toca para ver el archivo">
+    <div class="adj-mini">${a.mini || '<span class="adj-ext">…</span>'}</div>
+    <div class="adj-n">${escH(a.nombre)}</div>
+    <div class="adj-pie"><span class="nota">${mb(a.size)}</span><span class="adj-estado">${txt}</span></div>
+    <div class="adj-carga"><div style="width:${a.estado === "listo" || a.estado === "enviado" ? 100 : pct}%"></div></div>
+    <button type="button" class="adj-x" data-id="${a.id}" title="Quitar este adjunto" aria-label="Quitar"${enviando ? " disabled" : ""}>✕</button></div>`;
+}
+function pintarAdjuntos() {
+  const cont = $("#adj-lista"); if (!cont) return;
+  cont.innerHTML = adjuntos.map(htmlAdj).join("");
+  pintarTotalAdjuntos();
+}
+function actualizarAdjunto(a) {
+  const el = document.querySelector(`.adj-it[data-id="${a.id}"]`);
+  if (el) el.outerHTML = htmlAdj(a);
+  pintarTotalAdjuntos();
+}
+function pintarTotalAdjuntos() {
+  const total = adjuntos.reduce((s, f) => s + f.size, 0);
+  const txt = $("#adj-texto");
+  if (txt) txt.classList.toggle("aviso-txt", total > LIMITE_ADJ);
+  const qt = document.querySelector('.adj-total [data-js="adj_quitar_todo"]'); if (qt) qt.hidden = !adjuntos.length || enviando;
+  if (!txt) return;
+  const leyendo = adjuntos.filter((a) => a.estado === "leyendo").length, malos = adjuntos.filter((a) => a.estado === "error").length;
+  txt.textContent = adjuntos.length ? `${adjuntos.length} ${adjuntos.length === 1 ? "adjunto" : "adjuntos"} · ${mb(total)}`
+    + (total > LIMITE_ADJ ? ` · ⚠ pasa el límite de 25 MB de Gmail: quita ${mb(total - LIMITE_ADJ)} o mándalos en dos correos`
+      : leyendo ? ` · preparando ${leyendo}…` : malos ? ` · ${malos} no se pudo leer` : adjuntos.every((a) => a.estado === "enviado") ? " · enviados" : " · todos listos")
+    : "Ninguno todavía";
+}
+function elegirAdjuntos(carpeta) {
+  const i = document.createElement("input"); i.type = "file"; i.multiple = true;
+  if (carpeta) { i.webkitdirectory = true; i.setAttribute("webkitdirectory", ""); }
+  i.onchange = () => agregarAdjuntos([...i.files]);
+  i.click();
+}
+// vista previa grande de un adjunto (PDF, imagen, CSV/texto)
+function verAdjunto(a) {
+  cerrarVisor();
+  const k = adjuntos.indexOf(a), n = adjuntos.length;
+  const e = extDe(a.nombre);
+  let cuerpo;
+  if (a.tipo.startsWith("image/") && a.url) cuerpo = `<img src="${a.url}" alt="">`;
+  else if (e === "pdf" && a.url) cuerpo = `<iframe src="${a.url}#view=FitH" title="${escH(a.nombre)}"></iframe>`;
+  else if (a.texto != null) {
+    if (e === "csv") {
+      const filas = a.texto.split(/\r?\n/).filter((x) => x.trim()).slice(0, 60).map((l) => l.split(/[,;\t]/));
+      cuerpo = `<div class="visor-tabla"><table>${filas.map((f, k) => `<tr>${f.map((c) => k ? `<td>${escH(c)}</td>` : `<th>${escH(c)}</th>`).join("")}</tr>`).join("")}</table></div>`;
+    } else cuerpo = `<pre>${escH(a.texto)}</pre>`;
+  } else cuerpo = `<div class="visor-nada"><span class="adj-ext">${escH((e || "archivo").toUpperCase())}</span><p>Este tipo de archivo no tiene vista previa aquí, pero se adjunta igual.</p></div>`;
+  const v = document.createElement("div"); v.className = "adj-visor";
+  v.innerHTML = `<div class="visor-caja"><div class="visor-cab">
+    <button type="button" class="visor-flecha" data-paso="-1" title="Anterior (←)" aria-label="Anterior"${n < 2 ? " hidden" : ""}>‹</button>
+    <div class="visor-titulo"><b>${escH(a.nombre)}</b><span class="nota">${k + 1} de ${n} · ${mb(a.size)} · ${TEXTO_ESTADO[a.estado]}</span></div>
+    <button type="button" class="visor-flecha" data-paso="1" title="Siguiente (→)" aria-label="Siguiente"${n < 2 ? " hidden" : ""}>›</button>
+    <button type="button" class="btn mini visor-x" title="Cerrar la vista previa (Esc)">Cerrar</button></div><div class="visor-cuerpo">${cuerpo}</div></div>`;
+  v.dataset.k = k;
+  v.addEventListener("click", (ev) => {
+    const f = ev.target.closest(".visor-flecha"); if (f) { moverVisor(+f.dataset.paso); return; }
+    if (ev.target === v || ev.target.closest(".visor-x")) cerrarVisor();
+  });
+  let x0 = null;                                                   // deslizar con el dedo (o el trackpad) a la izquierda / derecha
+  v.addEventListener("touchstart", (ev) => { x0 = ev.touches[0].clientX; }, { passive: true });
+  v.addEventListener("touchend", (ev) => { if (x0 == null) return; const dx = ev.changedTouches[0].clientX - x0; x0 = null; if (Math.abs(dx) > 50) moverVisor(dx < 0 ? 1 : -1); });
+  let acum = 0, t = 0;
+  v.addEventListener("wheel", (ev) => {
+    if (Math.abs(ev.deltaX) <= Math.abs(ev.deltaY)) return;
+    ev.preventDefault(); if (Date.now() - t < 450) return;
+    acum += ev.deltaX; if (Math.abs(acum) > 60) { moverVisor(acum > 0 ? 1 : -1); acum = 0; t = Date.now(); }
+  }, { passive: false });
+  document.body.appendChild(v);
+  v.querySelector(".visor-caja").focus?.();
+}
+function moverVisor(paso) {
+  const v = document.querySelector(".adj-visor[data-k]"); if (!v || adjuntos.length < 2) return;
+  const k = (+v.dataset.k + paso + adjuntos.length) % adjuntos.length;
+  verAdjunto(adjuntos[k]);
+}
+function cerrarVisor() { document.querySelectorAll(".adj-visor").forEach((x) => x.remove()); }
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") cerrarVisor();
+  if ((e.key === "ArrowRight" || e.key === "ArrowLeft") && document.querySelector(".adj-visor[data-k]")) { e.preventDefault(); moverVisor(e.key === "ArrowRight" ? 1 : -1); }
+});
+document.addEventListener("click", (e) => {
+  const x = e.target.closest && e.target.closest(".adj-x");
+  if (x) { if (enviando) return; const k = adjuntos.findIndex((a) => a.id === +x.dataset.id); if (k >= 0) { const [a] = adjuntos.splice(k, 1); try { if (a.url) URL.revokeObjectURL(a.url); } catch (err) {} if (MAC) mac("adjunto_quitar", { ids: [a.id] }).catch(() => {}); } pintarAdjuntos(); return; }
+  const t = e.target.closest && e.target.closest(".adj-it");
+  if (t) { const a = adjuntos.find((z) => z.id === +t.dataset.id); if (a) verAdjunto(a); }
+});
+// arrastrar archivos a la pestaña Correo (en cualquier parte); en otras pestañas soltar un archivo no hace nada
+["dragenter", "dragover"].forEach((ev) => document.addEventListener(ev, (e) => {
+  if (!e.dataTransfer || ![...(e.dataTransfer.types || [])].includes("Files")) return;
+  e.preventDefault();
+  if (actual === "correo") { e.dataTransfer.dropEffect = "copy"; $("#adj-zona")?.classList.add("encima"); }
+  else e.dataTransfer.dropEffect = "none";
+}));
+document.addEventListener("dragleave", (e) => { if (!e.relatedTarget) $("#adj-zona")?.classList.remove("encima"); });
+document.addEventListener("drop", async (e) => {
+  if (!e.dataTransfer || ![...(e.dataTransfer.types || [])].includes("Files")) return;
+  e.preventDefault(); $("#adj-zona")?.classList.remove("encima");
+  if (actual !== "correo") return;
+  const archivos = [];
+  const items = [...(e.dataTransfer.items || [])].map((it) => it.webkitGetAsEntry && it.webkitGetAsEntry()).filter(Boolean);
+  const leerEntrada = (en) => new Promise((ok) => {          // también carpetas soltadas: se toman sus archivos
+    if (en.isFile) en.file((f) => { archivos.push(f); ok(); }, () => ok());
+    else if (en.isDirectory) {
+      const r = en.createReader(), todas = [];
+      const lote = () => r.readEntries(async (es) => { if (!es.length) { for (const x of todas) await leerEntrada(x); ok(); } else { todas.push(...es); lote(); } }, () => ok());
+      lote();
+    } else ok();
+  });
+  if (items.length) { for (const en of items) await leerEntrada(en); } else archivos.push(...e.dataTransfer.files);
+  agregarAdjuntos(archivos);
+});
+
+// ----- la cadena de correos del proyecto (fichas) -----
+function aplicarFuera() {
+  document.querySelectorAll(".chip-c").forEach((c) => c.classList.toggle("fuera", fueraEstaVez.has(c.dataset.correo)));
+  document.querySelectorAll(".chips-correo.muchas").forEach((c) => {
+    const ab = cadenasAbiertas.has(c.dataset.campo); c.classList.toggle("abierta", ab);
+    const b = c.querySelector(".chip-mas"); if (b) { if (!b.dataset.txt) b.dataset.txt = b.textContent; b.textContent = ab ? "Ver menos" : b.dataset.txt; }
+  });
+  const n = fueraEstaVez.size, av = $("#destinos-aviso");
+  if (av && !av.dataset.fijo) av.textContent = n ? `Esta vez no se envía a ${n} ${n === 1 ? "persona" : "personas"} (siguen en la cadena).` : "";
+}
+async function opDestinos(p) {
+  const r = await api("correo_destinos", p);
+  if (!r || r.error) { if (r && r.error) toast(r.error); return r; }
+  const d = $("#destinos"); if (d && r.html) d.outerHTML = r.html;
+  aplicarFuera();
+  const av = $("#destinos-aviso");
+  if (av && (r.malos?.length || r.deshacer)) {
+    av.dataset.fijo = "1";
+    av.innerHTML = r.malos?.length ? "No parecen correos (no los guardé): " + escH(r.malos.join(", "))
+      : `Quité a ${escH(r.deshacer.direccion)}. <button type="button" class="btn mini" data-js="dest_deshacer" title="Volver a ponerlo en la cadena">Deshacer</button>`;
+  }
+  if (r.deshacer) ultimoQuitado = r.deshacer;
+  if (r.toast && !r.deshacer) toast(r.toast);
+  return r;
+}
+async function agregarDestinos(campo) {
+  const t = $("#nuevo-correo"); if (!t || !t.value.trim()) { t?.focus(); toast("Escribe o pega primero los correos"); return; }
+  const r = await opDestinos({ op: "agregar", campo, texto: t.value });
+  if (r && !r.malos?.length) { const n = $("#nuevo-correo"); if (n) n.value = ""; const ag = $(".agregar-correo"); if (ag && ag.hidden) { ag.hidden = false; $("#nuevo-correo")?.focus(); } }
+  else if (r) { const n = $("#nuevo-correo"); if (n) n.value = r.malos.join(", "); }
+}
+document.addEventListener("click", (e) => {
+  const t = e.target; if (!t.closest) return;
+  const x = t.closest(".chip-x"); if (x) { opDestinos({ op: "quitar", correo: x.dataset.correo }); return; }
+  const m = t.closest(".chip-mover"); if (m) { opDestinos({ op: "mover", correo: m.dataset.correo }); return; }
+  const c = t.closest(".chip-c");
+  if (c) { const k = c.dataset.correo; fueraEstaVez.has(k) ? fueraEstaVez.delete(k) : fueraEstaVez.add(k); const av = $("#destinos-aviso"); if (av) delete av.dataset.fijo; aplicarFuera(); return; }
+  const f = t.closest(".firma-op");
+  if (f) { elegirFirma(f.dataset.firma); }
+});
+document.addEventListener("keydown", (e) => {
+  if (e.target && e.target.id === "nuevo-correo" && e.key === "Enter" && !e.shiftKey) { e.preventDefault(); agregarDestinos("para"); }
+});
+// forma antigua (por si quedó alguna casilla de texto de la versión anterior)
+document.addEventListener("change", async (e) => {
+  const t = e.target;
+  if (t.matches && t.matches("textarea.destinos")) await opDestinos({ [t.dataset.campo]: t.value });
+});
+
+// ----- firma -----
+async function elegirFirma(nombre) {
+  const r = await api("correo_elegir_firma", { nombre: nombre || "" });
+  if (!r || r.error) { if (r && r.error) toast(r.error); return; }
+  const tj = $("#tarjeta-firma"); if (tj && r.firma) tj.outerHTML = r.firma;
+  const v = $("#correo-firma"); if (v) v.innerHTML = r.vista || "";
+  if (r.toast) toast(r.toast);
+}
+function editorFirma() {
+  const v = document.createElement("div"); v.className = "adj-visor";
+  v.innerHTML = `<div class="visor-caja firma-editor"><div class="visor-cab"><b>Agregar firma</b>
+    <button type="button" class="btn mini visor-x" title="Cerrar sin guardar">Cancelar</button></div>
+    <div class="visor-cuerpo"><ol class="pasos"><li>En Gmail abre Configuración › Ver toda la configuración › Firma.</li>
+    <li>Elige la firma, selecciónala toda (⌘A dentro del cuadro) y cópiala (⌘C).</li><li>Pégala aquí abajo (⌘V) y escribe de quién es.</li></ol>
+    <label class="etq-campo">Nombre</label><input id="firma-nombre" class="campo" placeholder="Nombre de quien firma" title="Así aparecerá en la lista de firmas">
+    <label class="etq-campo">Firma</label><div id="firma-pegar" class="firma-pegar" contenteditable="true" title="Pega aquí la firma copiada de Gmail"></div>
+    <div class="barra-mini"><button type="button" class="btn acento" id="firma-guardar" title="Guardar la firma y usarla en este proyecto">Guardar firma</button></div></div></div>`;
+  v.addEventListener("click", (ev) => { if (ev.target === v || ev.target.closest(".visor-x")) v.remove(); });
+  v.querySelector("#firma-guardar").addEventListener("click", async () => {
+    const r = await api("firma_agregar", { nombre: v.querySelector("#firma-nombre").value, html: v.querySelector("#firma-pegar").innerHTML });
+    if (!r || r.error) { toast(r && r.error || "No pude guardar la firma"); return; }
+    v.remove();
+    const tj = $("#tarjeta-firma"); if (tj && r.firma) tj.outerHTML = r.firma;
+    const vf = $("#correo-firma"); if (vf) vf.innerHTML = r.vista || "";
+    toast(r.toast || "Firma guardada");
+  });
+  document.body.appendChild(v);
+  v.querySelector("#firma-nombre").focus();
+}
+
+// ----- envío -----
+function progresoEnvio(texto, pct) {
+  const p = $("#envio-progreso"); if (!p) return;
+  p.hidden = texto == null;
+  if (texto != null) { $("#envio-texto").textContent = texto; $("#envio-barra").style.width = Math.round((pct || 0) * 100) + "%"; }
+}
+function modoEnviando(si) {
+  enviando = si;
+  const b = document.querySelector('[data-js="correo_enviar"]'), d = document.querySelector('[data-js="correo_detener"]');
+  if (b) { b.disabled = si; b.textContent = si ? "Enviando…" : "Enviar correo"; }
+  if (d) d.hidden = !si;
+  document.querySelectorAll(".adj-x").forEach((x) => (x.disabled = si));
+}
+async function tokenParaGmail() {
+  if (PRUEBA) return { token: PRUEBA.token, url: (u) => u.replace("https://gmail.googleapis.com", PRUEBA.sheets + "/gmail") };
+  if (MAC) { const r = await mac("token_google", {}); return { token: r && r.token, url: (u) => (r && r.base ? u.replace("https://gmail.googleapis.com", r.base + "/gmail") : u) }; }
+  return { token: tokenVigente(), url: (u) => u };
+}
+function subirAGmail(url, token, mime, alAvance) {
+  return new Promise((ok) => {
+    const x = new XMLHttpRequest(); envioXhr = x;
+    x.open("POST", url);
+    x.timeout = 20 * 60 * 1000;
+    x.setRequestHeader("Authorization", "Bearer " + token);
+    x.setRequestHeader("Content-Type", "message/rfc822");
+    x.upload.onprogress = (e) => { if (e.lengthComputable) alAvance(e.loaded, e.total); };
+    x.onload = () => ok({ codigo: x.status, texto: x.responseText });
+    x.onerror = () => ok({ codigo: 0, texto: "red" });
+    x.ontimeout = () => ok({ codigo: 0, texto: "Gmail tardó demasiado en recibir el correo" });
+    x.onabort = () => ok({ cancelado: true });
+    x.send(mime);
+  });
+}
+async function permisoGmail(c) {
+  if (!(await modal({ titulo: "Falta un permiso de Google", texto: c.texto, si: "Dar permiso" }))) return false;
+  if (MAC) {
+    ocupado(true, "Da el permiso en el navegador que se abrió…");
+    try { const x = await mac("entrar", { extra: [c.scope] }); if (x.error) { await modal({ titulo: "No se dio el permiso", texto: x.error, si: "Entendido", no: "" }); return false; } }
+    finally { ocupado(false); }
+    await sesionMac(); return true;
+  }
+  if (ES_APP_INSTALADA) { toast("Vuelve a adjuntar los archivos y pulsa «Enviar correo» al regresar"); irAGoogle(PERMISOS + " " + c.scope); return false; }
+  return !!(await pedirTokenYa(true, PERMISOS + " " + c.scope));
+}
+function marcarAvance(r, enviados) {
+  const cortes = r.cortes || [];
+  adjuntos.forEach((a, i) => {
+    const ini = cortes[i] ?? r.mime.length, fin = cortes[i + 1] ?? r.mime.length;
+    const antes = a.estado + Math.round((a.pct || 0) * 20);
+    if (enviados >= fin) { a.estado = "enviando"; a.pct = 1; }
+    else if (enviados > ini) { a.estado = "enviando"; a.pct = (enviados - ini) / Math.max(1, fin - ini); }
+    else { a.estado = "espera"; a.pct = 0; }
+    if (antes !== a.estado + Math.round(a.pct * 20)) actualizarAdjunto(a);
+  });
+}
+async function enviarCorreo(forzar, sinPreguntar) {
+  if (enviando) return;
+  if (!$("#correo-asunto")) { await modal({ titulo: "Falta el correo", texto: "Primero elige el PDF del día: con él se arma el asunto y el texto.", si: "Entendido", no: "" }); return; }
+  const malos = adjuntos.filter((a) => a.estado === "error");
+  if (malos.length) { await modal({ titulo: "Hay un adjunto que no se pudo leer", texto: `«${malos[0].nombre}»: ${malos[0].error || ""}\n\nQuítalo con ✕ y vuelve a adjuntarlo.`, si: "Entendido", no: "" }); return; }
+  if (adjuntos.length && adjuntos.every((a) => a.estado === "enviado") && !forzar) {
+    if (!(await modal({ titulo: "Esos adjuntos ya se enviaron", texto: "¿Envío el mismo correo otra vez con los mismos archivos?", si: "Enviar otra vez" }))) return;
+    adjuntos.forEach((a) => { if (MAC) { a.estado = "leyendo"; a.pct = 0; guardarEnMac(a); } else { a.estado = "listo"; a.pct = 1; } }); pintarAdjuntos(); forzar = true; sinPreguntar = true;
+  }
+  const total = adjuntos.reduce((s, f) => s + f.size, 0);
+  if (total > LIMITE_ADJ) { await modal({ titulo: "Los adjuntos pesan demasiado", texto: `Pesan ${mb(total)} y Gmail deja hasta 25 MB por correo. Quita algunos o mándalos en dos correos.`, si: "Entendido", no: "" }); return; }
+  const asunto = $("#correo-asunto").value.trim();
+  const para = document.querySelectorAll('.chips-correo[data-campo="para"] .chip-c:not(.fuera)').length;
+  const cc = document.querySelectorAll('.chips-correo[data-campo="cc"] .chip-c:not(.fuera)').length;
+  if (!para) { await modal({ titulo: "Falta a quién enviarlo", texto: "Agrega al menos un correo en «Para» (Destinatarios de este proyecto).", si: "Entendido", no: "" }); return; }
+  const fop = $(".firma-op.on"), firma = fop ? (fop.dataset.firma || "sin firma") : "sin elegir (sale sin firma)";
+  if (!sinPreguntar && !(await modal({ titulo: "¿Envío el correo?", si: "Enviar",
+      texto: `«${asunto}»\n\nPara: ${para} · CC: ${cc}${fueraEstaVez.size ? ` (esta vez sin ${fueraEstaVez.size})` : ""}\nFirma: ${firma}\nAdjuntos: ${adjuntos.length} (${mb(total)})\n\nSe envía desde tu cuenta de Gmail; queda en tus «Enviados».` }))) return;
+  modoEnviando(true);
+  try {
+    if (adjuntos.some((a) => a.estado === "leyendo")) {
+      progresoEnvio("Terminando de leer los adjuntos…", 0);
+      while (adjuntos.some((a) => a.estado === "leyendo")) await new Promise((r) => setTimeout(r, 200));
+      if (adjuntos.some((a) => a.estado === "error")) { modoEnviando(false); progresoEnvio(null); return enviarCorreo(forzar, true); }
+    }
+    progresoEnvio("Armando el correo…", 0);
+    const ls = lineasDelCorreo(), texto = ls.map((l) => l.map((x) => x[0]).join("")).join("\n");
+    const carga = { asunto, texto, html: aHtml(ls), adjuntos: adjuntos.map((a) => (MAC ? { ref: a.ref, nombre: a.nombre } : { nombre: a.nombre, tipo: a.tipo, datos: a.datos })), forzar: !!forzar, fuera: [...fueraEstaVez],
+      envio_id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7) };
+    if (MAC) { await enviarDesdeMac(carga, total, forzar); return; }
+    if (!PRUEBA && !(sesion.permisos || "").includes("gmail.send")) {     // el permiso se pide ANTES de subir nada
+      modoEnviando(false); progresoEnvio(null);
+      const c = { scope: "https://www.googleapis.com/auth/gmail.send", texto: "Para enviar el correo desde la app, Google pide un permiso más: «Enviar correo electrónico en tu nombre». La app solo podrá ENVIAR (no puede leer tu correo).\n\nToca «Dar permiso» y deja MARCADA esa casilla." };
+      if (await permisoGmail(c)) await enviarCorreo(true, true);
+      return;
+    }
+    const r = await api("correo_armar", carga);
+    if (!r) return;
+    if (r.confirmar_envio) { modoEnviando(false); progresoEnvio(null); if (await modal({ titulo: "Ya se envió", texto: r.confirmar_envio, si: "Enviar otra vez" })) await enviarCorreo(true, true); return; }
+    if (r.error) { await modal({ titulo: "No se envió el correo", texto: r.error, si: "Entendido", no: "" }); return; }
+    let g = await tokenParaGmail(), res;
+    for (let intento = 0; intento < 2; intento++) {
+      const largo = r.mime.length;
+      res = await subirAGmail(g.url(r.url), g.token, r.mime, (env, tot) => {
+        const pct = env / tot;
+        const k = adjuntos.findIndex((a) => a.estado !== "enviando" || a.pct < 1);
+        progresoEnvio(pct >= 0.999 ? "Gmail está recibiendo el correo…" : `Enviando ${mb(total * pct)} de ${mb(total)}` + (adjuntos.length ? ` · archivo ${Math.min(adjuntos.length, Math.max(1, k + 1 || adjuntos.length))} de ${adjuntos.length}` : ""), pct);
+        marcarAvance(r, env / tot * largo);
+      });
+      if (res.codigo === 401 && intento === 0 && !PRUEBA) { g = MAC ? await tokenParaGmail() : { ...g, token: await pedirToken(false) }; if (g.token) continue; }
+      break;
+    }
+    if (res.cancelado) { adjuntos.forEach((a) => { a.estado = "listo"; a.pct = 1; }); pintarAdjuntos(); toast("Envío detenido: no se mandó nada"); return; }
+    let fin;
+    if (res.codigo === 0) {                   // sin respuesta de Gmail: NUNCA se reintenta solo (pudo haber salido: no se duplica)
+      fin = { error: "No tuve respuesta de Gmail (¿internet?). Revisa tus «Enviados» en Gmail antes de volver a enviarlo, para no mandarlo dos veces." };
+    } else fin = await api("correo_resultado", { codigo: res.codigo, texto: res.texto, asunto: r.asunto, para: r.para, cc: r.cc, adjuntos: adjuntos.length, total: r.total });
+    await terminarEnvio(fin);
+  } finally {
+    envioXhr = null; modoEnviando(false);
+    if (!adjuntos.length || !adjuntos.every((a) => a.estado === "enviado")) progresoEnvio(null);
+  }
+}
+// Lo que pasa al terminar (igual en el Mac y en la web)
+async function terminarEnvio(fin) {
+    if (!fin) return;
+    if (fin.pedir_permiso) {
+      adjuntos.forEach((a) => { a.estado = "listo"; a.pct = 1; }); pintarAdjuntos();
+      modoEnviando(false); progresoEnvio(null);
+      if (await permisoGmail(fin.pedir_permiso)) await enviarCorreo(true, true);
+      return;
+    }
+    if (fin.error) { adjuntos.forEach((a) => { a.estado = "listo"; a.pct = 1; }); pintarAdjuntos(); await modal({ titulo: "No se envió el correo", texto: fin.error, si: "Entendido", no: "" }); return; }
+    if (fin.enviado) {
+      adjuntos.forEach((a) => { a.estado = "enviado"; a.pct = 1; }); pintarAdjuntos();
+      progresoEnvio(`✔ Enviado a ${fin.enviado.para + fin.enviado.cc} personas`, 1);
+      const e = $("#correo-enviado"); if (e) e.textContent = `✔ Enviado el ${fin.enviado.fecha} a ${fin.enviado.para + fin.enviado.cc} personas con ${fin.enviado.adjuntos} adjuntos${fin.enviado.firma ? " · firma " + fin.enviado.firma : ""}.`;
+      fueraEstaVez.clear(); aplicarFuera();
+      toast(fin.toast || "Correo enviado");
+    }
+}
+// En el Mac: el Mac lo envía en segundo plano (un solo camino); la página solo pregunta cómo va. Se puede seguir usando la app.
+async function enviarDesdeMac(carga, total, forzar) {
+  const r = await mac("correo_enviar_fondo", carga);
+  if (!r) return;
+  if (r.pedir_permiso) {
+    modoEnviando(false); progresoEnvio(null);
+    if (await permisoGmail(r.pedir_permiso)) await enviarCorreo(true, true);
+    return;
+  }
+  if (r.confirmar_envio) { modoEnviando(false); progresoEnvio(null); if (await modal({ titulo: "Ya se envió", texto: r.confirmar_envio, si: "Enviar otra vez" })) await enviarCorreo(true, true); return; }
+  if (r.error) { await modal({ titulo: "No se envió el correo", texto: r.error, si: "Entendido", no: "" }); return; }
+  toast("Enviando en segundo plano: puedes seguir usando la app");
+  const base = { cortes: r.cortes, mime: { length: r.largo } };
+  for (;;) {
+    await new Promise((ok) => setTimeout(ok, 300));
+    const e = await mac("correo_estado", { id: r.id });
+    if (!e || e.error) { await terminarEnvio({ error: (e && e.error) || "Perdí el envío." }); return; }
+    const pct = e.total ? e.enviados / e.total : 0;
+    progresoEnvio(e.estado === "listo" ? "Terminando…" : pct >= 0.999 ? "Gmail está recibiendo el correo…" : `Enviando ${mb(total * pct)} de ${mb(total)}`, pct);
+    marcarAvance(base, pct * r.largo);
+    if (e.estado === "listo") { await terminarEnvio(e.resultado); return; }
+  }
+}

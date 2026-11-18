@@ -19,7 +19,7 @@ def instalar_stubs():
 
 BASE = "https://sheets.googleapis.com/v4/spreadsheets"
 # transporte(metodo, url, cuerpo_texto_o_None, token) -> (codigo_http, texto). Lo pone el worker (XHR síncrono) o las pruebas.
-ESTADO = {"transporte": None, "token": None, "correo": None, "conectado": False}
+ESTADO = {"transporte": None, "token": None, "correo": None, "conectado": False, "transporte_crudo": None}
 
 
 class ErrorHttp(Exception):
@@ -107,6 +107,16 @@ def instalar_google(rg):
         return True
 
     rg.conectar, rg.estado_cuenta, rg.tiene_llave = conectar, estado_cuenta, tiene_llave
+
+
+def enviar_crudo(url, cuerpo, tipo):
+    """Un pedido a Google con un cuerpo que NO es JSON (p. ej. el correo completo, «message/rfc822»). (código, texto)."""
+    if not ESTADO["token"]:
+        return 401, "sin sesión"
+    t = ESTADO.get("transporte_crudo")
+    if t is None:
+        return 0, "Esta versión de la app no puede enviar correos (actualízala)."
+    return t("POST", url, cuerpo, ESTADO["token"], tipo)
 
 
 def http_directo(metodo, url, cuerpo=None):
