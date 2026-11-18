@@ -3122,7 +3122,13 @@ def pagina_correo(p=None):
         o = correo_core.opciones_automaticas(c["proyecto"], datos, {"prefijo": pref})
         o["proyecto"] = abrev if usa_abrev else otro      # sin abreviatura, o si es la misma del PDF: va lo del PDF, sin preguntar
         r = correo_core.armar(datos, o)
-        nombre_fila = "" if not abrev or _igual(abrev, otro) else ('<div class="c-fila c-nombre"><span class="c-etq" title="Cómo se nombra el proyecto dentro del correo (se guarda para este proyecto)">Proyecto</span>'
+        if abrev and _igual(abrev, otro):                # la abreviatura y el PDF dicen lo mismo: se muestra, sin nada que elegir
+            nombre_fila = ('<div class="c-fila c-nombre"><span class="c-etq" title="Cómo se nombra el proyecto dentro del correo">Proyecto</span>'
+                           f'<div class="firmas"><span class="firma-op on" title="La abreviatura de este proyecto es igual al nombre que trae el PDF">{esc(otro)}</span>'
+                           '<span class="nota">la abreviatura y el PDF dicen lo mismo</span></div></div>')
+        else:
+            nombre_fila = ""
+        nombre_fila = nombre_fila if not abrev or _igual(abrev, otro) else ('<div class="c-fila c-nombre"><span class="c-etq" title="Cómo se nombra el proyecto dentro del correo (se guarda para este proyecto)">Proyecto</span>'
                        '<div class="firmas">'
                        + (f'<button type="button" class="firma-op{" on" if modo == "abreviatura" else ""}" data-a="correo_nombre" data-p=\'{{"modo":"abreviatura"}}\' '
                           f'title="Usar la abreviatura del proyecto en el correo">{esc(abrev)} <small>abreviatura</small></button>')
