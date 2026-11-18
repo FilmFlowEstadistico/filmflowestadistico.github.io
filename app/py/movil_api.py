@@ -50,7 +50,32 @@ def iniciar(carpeta_datos=None):
 
 def info_shell():
     proyectos, activo = rc.listar_proyectos()
-    return {"proyectos": proyectos, "activo": activo}
+    try:
+        datos = rc.leer_archivo(rc.RUTA_CONFIG)["proyectos"]
+        abrev = {n: (datos.get(n) or {}).get("abreviatura") or "" for n in proyectos}
+    except Exception:
+        abrev = {}
+    return {"proyectos": proyectos, "activo": activo, "abrev": abrev}
+
+
+def abreviatura_guardar(p):
+    """La abreviatura de ESTE proyecto (HDT, CODT, PP…): se puede usar en el correo y como comienzo del asunto."""
+    cfg = rc.cargar_config()
+    v = re.sub(r"\s+", " ", (p.get("valor") or "").strip())[:20]
+    if v:
+        cfg["abreviatura"] = v
+    else:
+        cfg.pop("abreviatura", None)
+    rc.guardar_config(cfg)
+    return {**pagina_ajustes(), "toast": f"Abreviatura de este proyecto: {v}" if v else "Este proyecto quedó sin abreviatura"}
+
+
+def correo_nombre(p):
+    """En el correo va la abreviatura del proyecto o el nombre tal como viene en el reporte (se guarda en el proyecto)."""
+    cfg = rc.cargar_config()
+    _cfg_correo(cfg)["nombre"] = "abreviatura" if p.get("modo") == "abreviatura" else "reporte"
+    rc.guardar_config(cfg)
+    return pagina_correo()
 
 
 def texto_error(error, que="no pude terminar."):
@@ -2313,7 +2338,13 @@ def pagina_ajustes(p=None):
            H.grupo("Equipo del proyecto"), html_equipo(cfg),
            H.grupo("Rollos"), _rollos_html(cfg),
            H.grupo("Proyecto")]
-    cp = (f'<p class="sub">Tienes {_n(len(proyectos), "proyecto", "proyectos")}. Con la sincronización, los mismos aparecen en tu Mac.</p>'
+    abrev = cfg.get("abreviatura") or ""
+    cp = ('<label class="etq-campo" for="abrev-in">Abreviatura</label>'
+          '<div class="fila-abrev"><input id="abrev-in" maxlength="20" autocapitalize="characters" spellcheck="false" placeholder="Por ejemplo HDT, CODT, PP" '
+          f'value="{esc(abrev)}" title="La abreviatura de este proyecto: en el Correo puedes elegir si va ella o el nombre que trae el PDF">'
+          '<button class="btn mini acento" data-js="abreviatura_guardar" title="Guardar la abreviatura de este proyecto">Guardar</button></div>'
+          '<p class="nota">Si es distinta del nombre que trae el PDF de Silverstack, en «Correo» eliges cuál va en el correo.</p>'
+          f'<p class="sub">Tienes {_n(len(proyectos), "proyecto", "proyectos")}. Con la sincronización, los mismos aparecen en tu Mac.</p>'
           '<div class="barra-mini llena">' + H.boton("Renombrar", "renombrar_pedir", "") + H.boton("Nuevo proyecto…", "nuevo_pedir", "") + "</div>"
           + ('<div class="barra-mini llena">' + H.boton("Eliminar este proyecto", "eliminar_proyecto", "peligro") + "</div>" if len(proyectos) > 1 else ""))
     out.append(H.tarjeta(cp))
@@ -3055,7 +3086,7 @@ def pagina_correo(p=None):
     if nombre:
         d = (c or {}).get("datos")
         info = f"Día {d['dia']:03d} · {d['fecha']:%d/%m/%Y} · unidad {d['unidad']}" if d else ""
-        cuerpo = (f'<div class="pdf-fila"><div class="ico-pdf">{ICO_PDF}</div><div class="pdf-txt"><b id="correo-pdf" title="{esc(nombre)}">{esc(nombre)}</b>'
+        cuerpo = (f'<div class="pdf-fila listo"><div class="ico-pdf">{ICO_PDF}</div><div class="pdf-txt"><b id="correo-pdf" title="{esc(nombre)}">{esc(nombre)}</b>'
                   f'<span class="nota">{esc(info)}</span></div>'
                   '<button class="btn mini" data-js="elegir_pdf_correo" title="Elegir otro PDF de Silverstack">Cambiar PDF…</button></div>')
     else:
@@ -3075,14 +3106,29 @@ def pagina_correo(p=None):
     puede = correo_core.puede_enviar(correo_sesion)
     asunto_html = '<div class="c-falta">Asunto</div>'
     texto_html = '<div class="c-falta texto">El asunto y el texto se arman solos al elegir el PDF del día (arriba).</div>'
-    avisos, botones_copiar = [], ""
+    avisos, botones_copiar, nombre_fila = [], "", ""
     if c and c.get("datos"):
         datos = c["datos"]
         reporte = c["reporte"]
         if reporte.get("fecha_dudosa"):
             cuerpo += H.aviso("aviso", f"Ojo: la fecha del reporte no es confiable; usé el día de descarga ({reporte['fecha']:%d/%m/%Y}).")
-        o = correo_core.opciones_automaticas(c["proyecto"], datos, {"prefijo": c.get("prefijo")})
+        abrev = (cfg_c.get("abreviatura") or "").strip()
+        del_pdf = (reporte.get("proyecto_pdf") or "").strip()
+        modo = _cfg_correo(cfg_c).get("nombre") or ("abreviatura" if abrev else "reporte")
+        _igual = lambda x, y: re.sub(r"[^A-Z0-9]", "", x.upper()) == re.sub(r"[^A-Z0-9]", "", y.upper())
+        otro = del_pdf or c["proyecto"]
+        usa_abrev = bool(abrev) and not _igual(abrev, otro) and modo == "abreviatura"
+        pref = c.get("prefijo") or (re.sub(r"[^A-Za-z0-9]+", "_", abrev).strip("_").upper() if usa_abrev else None)   # si no, lo de siempre (estilo del proyecto)
+        o = correo_core.opciones_automaticas(c["proyecto"], datos, {"prefijo": pref})
+        o["proyecto"] = abrev if usa_abrev else otro      # sin abreviatura, o si es la misma del PDF: va lo del PDF, sin preguntar
         r = correo_core.armar(datos, o)
+        nombre_fila = "" if not abrev or _igual(abrev, otro) else ('<div class="c-fila c-nombre"><span class="c-etq" title="Cómo se nombra el proyecto dentro del correo (se guarda para este proyecto)">Proyecto</span>'
+                       '<div class="firmas">'
+                       + (f'<button type="button" class="firma-op{" on" if modo == "abreviatura" else ""}" data-a="correo_nombre" data-p=\'{{"modo":"abreviatura"}}\' '
+                          f'title="Usar la abreviatura del proyecto en el correo">{esc(abrev)} <small>abreviatura</small></button>')
+                       + f'<button type="button" class="firma-op{" on" if modo != "abreviatura" or not abrev else ""}" data-a="correo_nombre" data-p=\'{{"modo":"reporte"}}\' '
+                         f'title="Usar el nombre tal como viene en el reporte de Silverstack">{esc(del_pdf or c["proyecto"])} <small>{"del reporte" if del_pdf else "nombre del proyecto"}</small></button>'
+                       + '</div></div>')
         lineas = ""
         for linea in r["lineas"]:
             if not linea:
@@ -3100,13 +3146,13 @@ def pagina_correo(p=None):
                        'si cambias el prefijo, la app lo recuerda para este proyecto)">')
         texto_html = (f'<div id="correo-texto" class="texto-correo" contenteditable="true" spellcheck="false" '
                       f'title="El texto del correo: lo puedes corregir aquí antes de enviarlo o copiarlo">{lineas}</div>')
-        botones_copiar = ('<button type="button" class="enlace" data-js="copiar_correo" title="Copiar el texto con sus negritas para pegarlo en Gmail">Copiar texto</button>'
-                          '<button type="button" class="enlace" data-js="copiar_asunto" title="Copiar el asunto">Copiar asunto</button>'
-                          '<button type="button" class="enlace" data-js="compartir_correo" title="Mandar el texto con otra app">Compartir…</button>')
+        botones_copiar = ('<button type="button" class="btn mini blanco" data-js="copiar_correo" title="Copiar el texto con sus negritas para pegarlo en Gmail">Copiar texto</button>'
+                          '<button type="button" class="btn mini blanco" data-js="copiar_asunto" title="Copiar el asunto">Copiar asunto</button>'
+                          '<button type="button" class="btn mini blanco" data-js="compartir_correo" title="Mandar el texto con otra app">Compartir…</button>')
     de = (f'<div class="c-fila c-de"><span class="c-etq">De</span><span>Data Management Colombia FilmFlow &lt;{esc(correo_sesion)}&gt;</span></div>'
           if puede else "")
     papel = ('<div class="papel correo-comp">' + de + html_destinos(cfg_c)
-             + f'<div class="c-asunto">{asunto_html}</div>'
+             + nombre_fila + f'<div class="c-asunto">{asunto_html}</div>'
              + f'<div class="c-cuerpo">{texto_html}</div>'
              + "".join(f'<p class="nota aviso-txt">{esc(x)}</p>' for x in avisos)
              + html_adjuntos()
@@ -3231,7 +3277,7 @@ ACCIONES = {k: v for k, v in globals().items() if callable(v) and not k.startswi
     "mover_rollo", "elegir_proyecto", "renombrar_pedir", "renombrar_ok", "nuevo_pedir", "nuevo_ok", "nuevo_conectar", "eliminar_proyecto", "eliminar_ok",
     "correo_pdf", "correo_usar_registro", "correo_prefijo", "cuenta", "sincronizar", "sync_enlace", "nuevo_dia",
     "reporte_abrir", "reporte_cerrar", "reporte_tipo", "reporte_tocar", "reporte_mes", "reporte_rango", "reporte_unidad", "reporte_modo", "reporte_contenido",
-    "reporte_crear", "reporte_semana", "reporte_semanas", "reporte_preset", "reporte_seccion", "reporte_orden", "reporte_modo_rapido", "reporte_nombre", "resumen_panel", "resumen_muestra", "correo_destinos", "correo_elegir_firma", "firma_agregar", "firma_quitar", "correo_armar", "correo_resultado", "correo_enviar", "color_en_hojas_ok", "equipo_agregar", "equipo_cancelar", "equipo_guardar", "equipo_dar_acceso", "equipo_quitar", "equipo_quitar_ok", "unirse", "unirse_pedir"}}
+    "reporte_crear", "reporte_semana", "reporte_semanas", "reporte_preset", "reporte_seccion", "reporte_orden", "reporte_modo_rapido", "reporte_nombre", "resumen_panel", "resumen_muestra", "correo_destinos", "correo_elegir_firma", "abreviatura_guardar", "correo_nombre", "firma_agregar", "firma_quitar", "correo_armar", "correo_resultado", "correo_enviar", "color_en_hojas_ok", "equipo_agregar", "equipo_cancelar", "equipo_guardar", "equipo_dar_acceso", "equipo_quitar", "equipo_quitar_ok", "unirse", "unirse_pedir"}}
 
 
 def _firma_config():

@@ -465,7 +465,7 @@ let ultimaTab = "resumen";
 function resaltarTab() { document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.ir === actual)); $("#btn-app").classList.toggle("on", actual === "app"); }
 function actualizarProyectos(info) {
   if (!info || !info.proyectos) return;
-  proyectos = { lista: info.proyectos, activo: info.activo };
+  proyectos = { lista: info.proyectos, activo: info.activo, abrev: info.abrev || {} };
   $("#proyecto-nombre").textContent = info.activo || "—";
   if (!PRUEBA) guardar("ff-proy", JSON.stringify(proyectos));
 }
@@ -786,6 +786,10 @@ const JS = {
   ver_cadena(el) { const c = el.closest(".chips-correo"); const k = c.dataset.campo; cadenasAbiertas.has(k) ? cadenasAbiertas.delete(k) : cadenasAbiertas.add(k); aplicarFuera(); },
   dest_mostrar_agregar() { const a = $(".agregar-correo"); if (a) { a.hidden = !a.hidden; if (!a.hidden) $("#nuevo-correo")?.focus(); } },
   firma_cambiar() { $("#tarjeta-firma")?.classList.toggle("cambiando"); },
+  async abreviatura_guardar() {            // Ajustes del proyecto › Abreviatura
+    const r = await api("abreviatura_guardar", { valor: ($("#abrev-in") || {}).value || "" });
+    if (r) mostrar(r);
+  },
   dest_agregar_para() { agregarDestinos("para"); },
   dest_agregar_cc() { agregarDestinos("cc"); },
   async dest_deshacer() { if (ultimoQuitado) { const d = ultimoQuitado; ultimoQuitado = null; const av = $("#destinos-aviso"); if (av) delete av.dataset.fijo; await opDestinos({ op: "volver", deshacer: d }); toast("Listo, volvió a la cadena"); } },
@@ -1731,7 +1735,7 @@ document.addEventListener("click", (e) => {
   const m = t.closest(".chip-mover"); if (m) { opDestinos({ op: "mover", correo: m.dataset.correo }); return; }
   const c = t.closest(".chip-c");
   if (c) { const k = c.dataset.correo; fueraEstaVez.has(k) ? fueraEstaVez.delete(k) : fueraEstaVez.add(k); const av = $("#destinos-aviso"); if (av) delete av.dataset.fijo; aplicarFuera(); return; }
-  const f = t.closest(".firma-op");
+  const f = t.closest("#tarjeta-firma .firma-op[data-firma]:not([data-js])");
   if (f) { elegirFirma(f.dataset.firma); }
 });
 document.addEventListener("keydown", (e) => {
@@ -1843,7 +1847,7 @@ async function enviarCorreo(forzar, sinPreguntar) {
   const para = document.querySelectorAll('.chips-correo[data-campo="para"] .chip-c:not(.fuera)').length;
   const cc = document.querySelectorAll('.chips-correo[data-campo="cc"] .chip-c:not(.fuera)').length;
   if (!para) { await modal({ titulo: "Falta a quién enviarlo", texto: "Agrega al menos un correo en «Para» (Destinatarios de este proyecto).", si: "Entendido", no: "" }); return; }
-  const fop = $(".firma-op.on"), firma = fop ? (fop.dataset.firma || "sin firma") : "sin elegir (sale sin firma)";
+  const fop = $("#tarjeta-firma .firma-op.on"), firma = fop ? (fop.dataset.firma || "sin firma") : "sin elegir (sale sin firma)";
   if (!sinPreguntar && !(await modal({ titulo: "¿Envío el correo?", si: "Enviar",
       texto: `«${asunto}»\n\nPara: ${para} · CC: ${cc}${fueraEstaVez.size ? ` (esta vez sin ${fueraEstaVez.size})` : ""}\nFirma: ${firma}\nAdjuntos: ${adjuntos.length} (${mb(total)})\n\nSe envía desde tu cuenta de Gmail; queda en tus «Enviados».` }))) return;
   modoEnviando(true);

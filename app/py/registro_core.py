@@ -195,7 +195,7 @@ def guardar_config(cfg, ruta=RUTA_CONFIG):
     correo = cfg["correo"] if "correo" in cfg else previo.get("correo")
     if correo:
         nuevo["correo"] = correo                    # cómo se arma el correo de este proyecto (pestaña «Correo»)
-    for k in ("equipo", "ficha", "origen"):         # encargados del proyecto y de dónde vino (sync_core: «Equipo del proyecto»)
+    for k in ("equipo", "ficha", "origen", "abreviatura"):   # encargados, de dónde vino (sync_core) y la abreviatura (HDT, CODT…)
         v = cfg[k] if k in cfg else previo.get(k)
         if v:
             nuevo[k] = v
@@ -1237,10 +1237,35 @@ def texto_gb(gb):
 _leer_reporte_crudo = leer_reporte
 
 
+def proyecto_del_reporte(texto):
+    """El nombre del proyecto tal como lo trae el reporte de Silverstack (campo «Project»): «HDT», «CELOS», «MICROHISTORIAS»… o ""."""
+    lineas = [l.strip() for l in (texto or "").splitlines()[:20]]
+    for i, l in enumerate(lineas):                          # diseño 1: «<bin> <PROYECTO> Pomfort Silverstack…» sobre «Bin/Folder Project …»
+        if i and "Bin/Folder" in l and "Project" in l:
+            arriba = re.split(r"\s+Pomfort\b|\s+Silverstack\b", lineas[i - 1])[0].split()[1:]
+            while arriba and re.fullmatch(r"[_\d]+", arriba[0]):      # «20260901_Day095_U1 1 LRDS4»: el «1» es del nombre de la carpeta
+                arriba = arriba[1:]
+            return " ".join(arriba).strip()
+    for i, l in enumerate(lineas):                          # diseño 2: «Shooting Day Report» / <bin> / PROYECTO / «Offloads started…»
+        if l.startswith("Shooting Day Report") and i + 2 < len(lineas):
+            cand = lineas[i + 2]
+            if cand and not re.match(r"(Offloads|Production Info|Shooting|and |\d)", cand):
+                return cand
+            break
+    return ""
+
+
 def leer_reporte(ruta, texto=None):
     """Lee el PDF de Silverstack. Si un dato viene dañado (un número como «6..51») avisa con claridad en vez de romperse."""
     try:
-        return _leer_reporte_crudo(ruta, texto)
+        if texto is None:
+            texto = rd.texto_del_pdf(ruta)
+        r = _leer_reporte_crudo(ruta, texto)
+        try:
+            r["proyecto_pdf"] = proyecto_del_reporte(texto.translate(GUION_PDF))
+        except Exception:
+            r["proyecto_pdf"] = ""
+        return r
     except ValueError as e:
         raise ErrorRegistro(f"El PDF trae un dato que no pude leer ({e}). Abre el PDF y revisa que esté completo; "
                             "si es el original de Silverstack, avísame cuál es y lo reviso.")

@@ -759,3 +759,12 @@ button.enlace:hover{text-decoration:underline}
 .visor-flecha{flex:none;width:36px;height:36px;border-radius:50%;border:1px solid var(--separador);background:var(--campo);color:var(--texto);font-size:24px;line-height:1;cursor:pointer}
 .visor-flecha:hover{background:var(--seleccion)}
 .visor-flecha[hidden]{display:none}
+/* 18/11 (3.ª): botones de copiar = botones blancos pequeños; PDF elegido en verde; fila «Proyecto» del correo */
+.btn.blanco{background:#fff;color:#202124;border:1px solid #dadce0;box-shadow:0 1px 2px rgba(0,0,0,.06)}
+.btn.blanco:hover{background:#f6f8f9}
+.correo-acciones .copiar{gap:8px}
+.correo-acciones .copiar .btn{min-height:36px;padding:6px 14px;font-size:13.5px}
+.pdf-fila.listo{background:var(--exito-fondo);border:2px solid var(--acento-ui)}
+.correo-comp .c-nombre .firmas{display:flex}
+.correo-comp .firma-op small{font-size:11px;opacity:.75;margin-left:3px}
+.fila-abrev{display:flex;gap:8px;align-items:center}.fila-abrev input{flex:1;margin:0;text-transform:uppercase}
