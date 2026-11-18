@@ -775,3 +775,4 @@ button.enlace:hover{text-decoration:underline}
 .correo-comp #fuera-aviso.alerta-fuera .btn{background:#fff;color:#c5221f;border:1px solid #ea4335;margin-left:auto}
 .correo-comp .chip-c.fuera{background:#fce8e6!important;border-color:#f28b82!important;opacity:.8}
 .correo-comp #fuera-aviso:empty{display:none}
+.correo-acciones.solo-copiar .copiar{margin-left:0}.correo-acciones.solo-copiar{gap:8px}

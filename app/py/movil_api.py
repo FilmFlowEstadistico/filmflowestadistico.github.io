@@ -3159,13 +3159,23 @@ def pagina_correo(p=None):
                           '<button type="button" class="btn mini blanco" data-js="compartir_correo" title="Mandar el texto con otra app">Compartir…</button>')
     de = (f'<div class="c-fila c-de"><span class="c-etq">De</span><span>Data Management Colombia FilmFlow &lt;{esc(correo_sesion)}&gt;</span></div>'
           if puede else "")
+    if not puede:
+        # cuentas que NO envían (invitados): como antes de enviar desde la app → solo el correo armado para copiar (con la abreviatura)
+        if not (c and c.get("datos")):
+            return {"pagina": "correo", "html": cuerpo}
+        papel = ('<div class="papel correo-comp">' + nombre_fila + f'<div class="c-asunto">{asunto_html}</div>'
+                 + f'<div class="c-cuerpo">{texto_html}</div>' + "".join(f'<p class="nota aviso-txt">{esc(x)}</p>' for x in avisos) + '</div>')
+        copiar = botones_copiar.replace('btn mini blanco" data-js="copiar_correo"', 'btn acento" data-js="copiar_correo"')
+        cuerpo += (papel + f'<div class="correo-acciones solo-copiar">{copiar}</div><p class="sub" id="correo-copiado"></p>'
+                   '<p class="nota">Puedes corregir el texto o el asunto aquí antes de copiarlo.</p>')
+        return {"pagina": "correo", "html": cuerpo}
     papel = ('<div class="papel correo-comp">' + de + html_destinos(cfg_c)
              + nombre_fila + f'<div class="c-asunto">{asunto_html}</div>'
              + f'<div class="c-cuerpo">{texto_html}</div>'
              + "".join(f'<p class="nota aviso-txt">{esc(x)}</p>' for x in avisos)
              + html_adjuntos()
-             + (html_firma(cfg_c) if puede else "")
-             + f'<div id="correo-firma" class="firma-vista" title="La firma tal como sale al final del correo">{vista_firma(cfg_c) if puede else ""}</div>'
+             + html_firma(cfg_c)
+             + f'<div id="correo-firma" class="firma-vista" title="La firma tal como sale al final del correo">{vista_firma(cfg_c)}</div>'
              + '</div>')
     enviar = ('<button class="btn acento" data-js="correo_enviar" title="Enviar el correo con sus adjuntos a la cadena de este proyecto">Enviar correo</button>'
               '<button class="btn" data-js="correo_detener" hidden title="Detener el envío (no se manda nada)">Detener envío</button>' if puede else "")

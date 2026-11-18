@@ -17,6 +17,7 @@ que devuelve (código, texto). Así es el MISMO código en el Mac y en el teléf
 import copy
 import hashlib
 import json
+import os
 import re
 import time
 from pathlib import Path
@@ -269,9 +270,19 @@ def _quitar_permiso(http, sid, correo, que):
                 raise _error_drive(c2, t2, que)
 
 
+_CORREO_PRIVADO = ("para", "cc", "enviados", "firma")    # del correo: solo para quien envía (datos de otras personas)
+
+
+def _para_ficha(p):
+    """El proyecto como lo ve el equipo invitado: sin lo de quien comparte ni la cadena de correos / firma / historial de envíos."""
+    q = {k: copy.deepcopy(v) for k, v in p.items() if k not in _NO_SE_COMPARTE and not str(k).startswith("_")}
+    if isinstance(q.get("correo"), dict):
+        q["correo"] = {k: v for k, v in q["correo"].items() if k not in _CORREO_PRIVADO}
+    return q
+
+
 def _ficha_doc(nombre, p, de, ahora):
-    return {"v": 1, "nombre": nombre, "de": de, "mod": int(ahora),
-            "p": {k: copy.deepcopy(v) for k, v in p.items() if k not in _NO_SE_COMPARTE and not str(k).startswith("_")}}
+    return {"v": 1, "nombre": nombre, "de": de, "mod": int(ahora), "p": _para_ficha(p)}
 
 
 def escribir_ficha(http, nombre, p, de="", ahora=None, crear=True):
@@ -636,11 +647,15 @@ def sincronizar(http, correo, dispositivo="", crear=True, carpeta=None, ahora=No
         if fid in propias_fid:                                 # TU ficha: lo que un invitado cambió se mezcla con lo tuyo
             n_ = propias_fid[fid]
             l_ = loc[n_]
-            if base_ is not None and doc_.get("p") != base_:
-                mio = sin_llave(l_[0])
-                mezcla = _mezclar(base_, mio, doc_["p"])
+            # se compara SIN lo privado del correo (la ficha no lo lleva): así una ficha vieja/nueva nunca borra tu cadena ni tu firma
+            if base_ is not None and _para_ficha(doc_.get("p") or {}) != _para_ficha(base_):
+                mio = _para_ficha(l_[0])
+                mezcla = _mezclar(_para_ficha(base_), mio, _para_ficha(doc_["p"]))
                 if mezcla != mio:
                     nuevo_p = dict(mezcla, **{k: l_[0][k] for k in _NO_SE_COMPARTE if k in l_[0]})
+                    privado = {k: v for k, v in (l_[0].get("correo") or {}).items() if k in _CORREO_PRIVADO}
+                    if privado:
+                        nuevo_p["correo"] = dict(nuevo_p.get("correo") or {}, **privado)
                     loc[n_] = (nuevo_p, max(l_[1], mod_c) + 1, _huella(nuevo_p))
             continue
         r_ = rem.get(n)
@@ -746,19 +761,57 @@ def sincronizar(http, correo, dispositivo="", crear=True, carpeta=None, ahora=No
                 pass
         rc.escribir_archivo(nuevo_local, ruta, sin_aviso=True)
 
+    # --- las firmas del correo (catálogo de este aparato, «firmas_correo.json»): se escriben una vez y llegan a todos tus aparatos.
+    # Solo con la cuenta que envía correos (las firmas traen datos de personas: no van al Drive de otras cuentas).
+    firmas_doc, est_firmas = None, {}
+    try:
+        import correo_core as _cc
+        con_firmas = _cc.puede_enviar(correo)
+    except Exception:
+        con_firmas = False
+    if con_firmas:
+        ruta_f = carpeta / "firmas_correo.json"
+        try:
+            loc_f = json.loads(ruta_f.read_text(encoding="utf-8")).get("firmas") or []
+        except Exception:
+            loc_f = []
+        h_f = hashlib.sha1(json.dumps(loc_f, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()[:16]
+        if est.get("firmas_h") == h_f:
+            mod_f = int(est.get("firmas_mod") or 0)
+        else:
+            mod_f = ahora if loc_f else 0                      # cambiaron aquí (un aparato nuevo, sin firmas, no gana)
+        rem_f = remoto.get("firmas") if isinstance(remoto.get("firmas"), dict) else {}
+        if rem_f.get("lista") is not None and int(rem_f.get("mod") or 0) > mod_f:
+            lista_f, mod_f = rem_f["lista"], int(rem_f.get("mod") or 0)
+            if lista_f != loc_f:
+                tmp = ruta_f.with_name("firmas_correo.json.tmp")
+                tmp.write_text(json.dumps({"firmas": lista_f}, ensure_ascii=False, indent=1), encoding="utf-8")
+                os.replace(tmp, ruta_f)
+        else:
+            lista_f = loc_f
+        if lista_f or rem_f:
+            firmas_doc = {"lista": lista_f, "mod": mod_f}
+        est_firmas = {"firmas_h": hashlib.sha1(json.dumps(lista_f, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()[:16],
+                      "firmas_mod": mod_f}
+
     # --- lo de Google
     vivas = set(final)
     doc = {"v": 1, "proyectos": {n: {"mod": e["mod"], "p": e["p"]} for n, e in final.items()},
            "borrados": {n: t for n, t in tumbas.items() if n not in vivas and ahora - t < VIGENCIA_BORRADOS}}
+    if firmas_doc is not None:
+        doc["firmas"] = firmas_doc
+    elif remoto.get("firmas"):
+        doc["firmas"] = remoto["firmas"]                       # (otra cuenta: lo que hubiera se deja tal cual)
     if creada or json.dumps(doc, sort_keys=True) != json.dumps({"v": remoto.get("v", 1), "proyectos": remoto["proyectos"],
-                                                                "borrados": remoto.get("borrados") or {}}, sort_keys=True):
+                                                                "borrados": remoto.get("borrados") or {},
+                                                                **({"firmas": remoto["firmas"]} if remoto.get("firmas") else {})}, sort_keys=True):
         escribir_remoto(http, sid, doc, f"{correo or 'tu cuenta'} ({dispositivo or 'aparato'})")
 
     # --- las fichas de los proyectos que TÚ compartes: si el proyecto cambió (rollos, hojas…), su equipo recibe el cambio
     propias = dict(est.get("fichas_propias") or {})
     for n, e in final.items():
         if e["p"].get("ficha") and not e["p"].get("origen"):
-            h = _huella({k: v for k, v in e["p"].items() if k not in _NO_SE_COMPARTE})
+            h = _huella(_para_ficha(e["p"]))
             fid_ = e["p"]["ficha"]
             visto = ((fichas.get(fid_) or {}).get("doc") or {}).get("p")
             if propias.get(n) != h or (visto is not None and _huella(visto) != h):
@@ -784,7 +837,7 @@ def sincronizar(http, correo, dispositivo="", crear=True, carpeta=None, ahora=No
                      "borrados": doc["borrados"], "fichas": fichas,
                      "fichas_unidas": [f for f in (est.get("fichas_unidas") or []) if f not in perdidas_f],
                      "fichas_propias": {n: h for n, h in propias.items() if n in final},
-                     "revisados": {n: f for n, f in revisados.items() if n in final}}, carpeta)
+                     "revisados": {n: f for n, f in revisados.items() if n in final}, **est_firmas}, carpeta)
     return {"estado": "ok", "sid": sid, "creada": creada, "bajados": bajados, "subidos": subidos, "borrados": borrados,
             "proyectos": len(final), "sin_acceso": sin_acceso, "cuenta_anterior": cuenta_cambiada}
 
