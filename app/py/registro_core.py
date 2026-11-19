@@ -418,8 +418,9 @@ def patrones_de_tipo(tipo, letra="", otro=""):
     """Cómo se reconoce un rollo según su tipo. Cámara = solo la letra."""
     if tipo == "camara":
         return patrones_de_camara(letra)
-    if tipo == "sonido":
-        return list(PATRONES_SONIDO)
+    if tipo == "sonido":                               # la grabadora por fecha (26Y11M18) y, si se escribió, la forma propia del nombre
+        propios = [x for x in normalizar_patrones(otro) if x not in PATRONES_SONIDO]   # («ADL-LOOK&FELL-####»)
+        return propios + list(PATRONES_SONIDO)
     if tipo == "drones":
         return list(PATRONES_DRONES)
     if tipo == "celulares":
@@ -440,6 +441,9 @@ def _tipo_de_patrones(patrones):                      # con memoria: se llama mi
     for tipo, fijos in (("sonido", PATRONES_SONIDO), ("drones", PATRONES_DRONES), ("celulares", PATRONES_CELULARES)):
         if list(patrones) == fijos:
             return tipo, "", ""
+    n_s = len(PATRONES_SONIDO)
+    if len(patrones) > n_s and list(patrones[-n_s:]) == PATRONES_SONIDO:          # sonido con su forma propia + la de la grabadora
+        return "sonido", "", ", ".join(patrones[:-n_s])
     letra = letra_de_camara(patrones)
     if letra:
         return "camara", letra, ""
@@ -2345,10 +2349,10 @@ def rollo_nuevo_sugerido(cfg, reporte, valores=None):
     b0 = sorted(sin, key=lambda b: b["nombre"])[0]
     nombre, cam, es_audio = b0["nombre"], b0.get("letra") or b0.get("cam") or "", bool(b0.get("audio"))
     tipo, letra, otro = adivinar_tipo(nombre, cam)
-    if es_audio and tipo != "sonido":
+    if es_audio and tipo != "sonido":                 # el PDF dice que es audio: es SONIDO (con la forma propia de su nombre)
         k = identificar_bin(nombre)
         otro = patron_de_palabra(nombre) if (k and k["tipo"] == "sonido" and re.match(r"[A-Za-z]{2}", nombre)) else patron_corto(nombre)
-        tipo, letra = "otro", ""
+        tipo, letra = "sonido", ""
     igual = adivinar_tipo(nombre, cam)
     parecidos = sorted(b["nombre"] for b in sin if adivinar_tipo(b["nombre"], b.get("letra") or b.get("cam") or "") == igual and bool(b.get("audio")) == es_audio)
     que = que_es_rollo(tipo, letra, nombre)
@@ -2359,9 +2363,9 @@ def rollo_nuevo_sugerido(cfg, reporte, valores=None):
     if tipo == "camara" and len([x for x in verif.get("pruebas") or [] if x != "peso de imagen"]) >= 2:
         que += ". Lo confirman: " + ", ".join(x for x in verif["pruebas"] if x != "peso de imagen")
     base = {"tipo": tipo, "letra": letra, "otro": otro}
-    if es_audio and tipo == "otro":
-        que = "AUDIO (el reporte lo lista como grabación de audio). Llámalo «Sonido» para que cuente como audio"
-        base["nombre"], base["nombre_fijo"] = "Sonido", True
+    if es_audio and tipo == "sonido" and otro:
+        que = "SONIDO (el reporte lo lista como grabación de audio, con un nombre propio)"
+        base["nombre"] = NOMBRE_POR_TIPO["sonido"]
     elif tipo == "otro" and nombre_sugerido(nombre, cam):
         base["nombre"] = nombre_sugerido(nombre, cam)
     if tipo == "camara":

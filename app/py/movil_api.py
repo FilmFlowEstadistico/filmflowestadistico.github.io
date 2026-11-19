@@ -1279,7 +1279,10 @@ def html_formulario_rollo(f):
         for k, t in TIPOS_FORM if k in ("camara", "sonido") or k == tipo) + "</div>"
     s += f'<label data-solo="camara">Letra de la cámara<input name="letra" maxlength="1" value="{esc(base.get("letra", ""))}" autocapitalize="characters"></label>'
     s += '<p class="nota" data-solo="camara">una sola letra, ej. M</p>'
-    s += f'<label data-solo="otro">El BIN empieza con<input name="otro" value="{esc(base.get("otro", ""))}"></label><p class="nota" data-solo="otro">ej. D###_   (# = un número)</p>'
+    s += (f'<label data-solo="otro sonido">El BIN empieza con<input name="otro" value="{esc(base.get("otro", ""))}" '
+          'title="Cómo empieza el nombre de las tarjetas de este rollo (# = un número)"></label>'
+          '<p class="nota" data-solo="otro">ej. D###_   (# = un número)</p>'
+          '<p class="nota" data-solo="sonido">Si el sonido tiene un nombre propio (ej. ADL-LOOK&amp;FELL-####). Vacío = la grabadora por fecha (26Y11M18).</p>')
     # el nombre lo pone la app (según el tipo y la letra): se ve, pero no se escribe a mano. Un rollo que ya tenía su nombre lo conserva.
     auto = _nombre_auto(tipo, base.get("letra", ""), base.get("otro", ""))
     fijo = (base.get("nombre") or "").strip()
@@ -1626,13 +1629,22 @@ def _escribir_estadistico(servicio, est, prop):
         if prop.get("estructura"):        # cámaras nuevas (columna y fila del Resumen) y días sin fila: primero la forma de la hoja
             rg.aplicar_estructura(servicio, sid, pestana, prop["estructura"])
         rg.escribir_celdas(servicio, sid, [(p, c, ch["nuevo"]) for (p, c), ch in zip(celdas, prop["cambios"])])
+    ampliadas = []
+    if celdas and prop.get("fila") is not None:
+        try:                              # que la fila TOTAL (y el Resumen General que la lee) cuente este día (ADL «Dia 903»)
+            ampliadas = rg.contar_dia_en_total(servicio, sid, est["datos"], prop["fila"] + 1)
+        except Exception as e:
+            ampliadas = [f"(no pude revisar la fila TOTAL: {e})"]
+    extra = ([("ok", f"La fila TOTAL no contaba «{prop.get('texto_dia') or prop['dia']}»: amplié sus sumas ({', '.join(ampliadas[:4])}"
+               f"{'…' if len(ampliadas) > 4 else ''}) para que el Resumen General y el promedio por día lo incluyan.")] if ampliadas and not ampliadas[0].startswith("(") else
+             [("aviso", ampliadas[0])] if ampliadas else [])
     try:
         total = prop["lectura_total"]
         leidos = rg.leer_celdas(servicio, sid, celdas + ([(est["datos"], total)] if total else []))
         por_celda = {(ch["hoja"], ch["celda"]): leidos.get(c) for c, ch in zip(celdas, prop["cambios"])}
-        return ec.comprobar(prop, por_celda, leidos.get((est["datos"], total)) if total else None)
+        return ec.comprobar(prop, por_celda, leidos.get((est["datos"], total)) if total else None) + extra
     except Exception as e:
-        return [("aviso", f"Escribí el estadístico, pero no pude comprobarlo leyéndolo de vuelta: {e}")]
+        return [("aviso", f"Escribí el estadístico, pero no pude comprobarlo leyéndolo de vuelta: {e}")] + extra
 
 
 def _aplicar_correcciones(servicio, est, hallazgos):

@@ -579,7 +579,7 @@ function posprocesar() {
   if (actual === "correo") {
     const pr = ($("#proyecto-nombre") || {}).textContent || "";
     if (pr !== proyectoDelCorreo) { fueraEstaVez.clear(); proyectoDelCorreo = pr; }
-    pintarAdjuntos(); aplicarFuera();
+    pintarAdjuntos(); aplicarFuera(); arreglarImagenesFirma();
     if (enviando) modoEnviando(true);
   }
   vista.querySelectorAll('.seg[data-js="tema"]').forEach((b) => b.classList.toggle("on", b.dataset.v === (leer("ff-tema") || "auto")));
@@ -587,7 +587,7 @@ function posprocesar() {
 function alternarTipo(form) {
   const sel = form.querySelector('[data-form="tipo"]:checked');
   if (!sel) return;
-  form.querySelectorAll("[data-solo]").forEach((el) => { el.style.display = el.dataset.solo === sel.value ? "" : "none"; });
+  form.querySelectorAll("[data-solo]").forEach((el) => { el.style.display = el.dataset.solo.split(" ").includes(sel.value) ? "" : "none"; });
   nombreAuto(form);
 }
 // «Nombre del rollo» lo pone la app (Cámara L, Sonido…): se actualiza solo con el tipo y la letra; no se escribe a mano
@@ -811,7 +811,7 @@ const JS = {
     if (!(await modal({ titulo: "¿Quitar esta firma?", texto: `La firma de ${el.dataset.firma} se quita de la lista de este equipo (en Gmail sigue igual).`, si: "Quitar" }))) return;
     const r = await api("firma_quitar", { nombre: el.dataset.firma });
     const tj = $("#tarjeta-firma"); if (r && tj && r.firma) tj.outerHTML = r.firma;
-    const v = $("#correo-firma"); if (r && v) v.innerHTML = r.vista || "";
+    const v = $("#correo-firma"); if (r && v) { v.innerHTML = r.vista || ""; arreglarImagenesFirma(v); }
     if (r && r.toast) toast(r.toast);
   },
   async elegir_pdf_correo() { const d = await elegirPdf(); if (d) mostrar(await api("correo_pdf", d)); },
@@ -1765,11 +1765,27 @@ document.addEventListener("change", async (e) => {
 });
 
 // ----- firma -----
+// Las imágenes de las firmas de Gmail (googleusercontent): Google contesta «429 demasiadas veces» si se piden seguido y la firma sale
+// rota («?»). En el Mac se usa la copia que el Mac guarda (/mac/img); en la web, si falla, se vuelve a intentar al rato.
+function arreglarImagenesFirma(raiz) {
+  (raiz || document).querySelectorAll("#correo-firma img, .firma-muestra img, .firma-pegar img").forEach((im) => {
+    const src = im.getAttribute("src") || "";
+    if (!/^https:\/\/[^/]+\.googleusercontent\.com\//.test(src)) return;
+    if (MAC) { im.src = "/mac/img?k=" + encodeURIComponent(CLAVE_MAC) + "&u=" + encodeURIComponent(src); return; }
+    if (im.dataset.reintento) return;
+    im.dataset.reintento = "0";
+    im.addEventListener("error", () => {
+      const n = +im.dataset.reintento; if (n >= 3) return;
+      im.dataset.reintento = String(n + 1);
+      setTimeout(() => { im.src = ""; im.src = src; }, 3000 * (n + 1));
+    });
+  });
+}
 async function elegirFirma(nombre) {
   const r = await api("correo_elegir_firma", { nombre: nombre || "" });
   if (!r || r.error) { if (r && r.error) toast(r.error); return; }
   const tj = $("#tarjeta-firma"); if (tj && r.firma) tj.outerHTML = r.firma;
-  const v = $("#correo-firma"); if (v) v.innerHTML = r.vista || "";
+  const v = $("#correo-firma"); if (v) { v.innerHTML = r.vista || ""; arreglarImagenesFirma(v); }
   if (r.toast) toast(r.toast);
 }
 function editorFirma() {
@@ -1787,7 +1803,7 @@ function editorFirma() {
     if (!r || r.error) { toast(r && r.error || "No pude guardar la firma"); return; }
     v.remove();
     const tj = $("#tarjeta-firma"); if (tj && r.firma) tj.outerHTML = r.firma;
-    const vf = $("#correo-firma"); if (vf) vf.innerHTML = r.vista || "";
+    const vf = $("#correo-firma"); if (vf) { vf.innerHTML = r.vista || ""; arreglarImagenesFirma(vf); }
     toast(r.toast || "Firma guardada");
   });
   document.body.appendChild(v);

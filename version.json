@@ -1,31 +1,31 @@
 {
- "version": "1.1.35",
+ "version": "1.1.36",
  "fecha": "2026-11-19",
  "novedades": [
-  "Lee nombres de sonido que el PDF parte en varias líneas (ej. «ADL-LOOK&FELL-1811»)",
-  "Escribe bien en hojas de estatus con los días preparados en la plantilla (celdas ya combinadas)",
-  "El nombre del rollo lo pone la app según el tipo y la letra (no se escribe a mano)"
+  "Sonido con nombre propio: se marca como «Sonido» con su forma de nombre (ej. ADL-LOOK&FELL-####)",
+  "El estadístico: si la fila TOTAL no contaba el día escrito, se amplía para que el Resumen General lo sume",
+  "Las firmas de Gmail de solo imagen ya no salen con «?» (en el Mac se guardan)"
  ],
  "mac_arm64": {
   "archivo": "Estadistico_FilmFlow_Mac.zip",
-  "url": "https://github.com/FilmFlowEstadistico/filmflowestadistico.github.io/releases/download/v1.1.35/Estadistico_FilmFlow_Mac.zip",
-  "tamano": 41443131,
-  "sha256": "d489c03c8eb03c92079e53c98603767a0b8a8b004d9e4358871d424ff4728d32"
+  "url": "https://github.com/FilmFlowEstadistico/filmflowestadistico.github.io/releases/download/v1.1.36/Estadistico_FilmFlow_Mac.zip",
+  "tamano": 41448313,
+  "sha256": "0a007b22e901b1048b58d052cb2abed61e8b3cec1b12fe5a8496580710c966c4"
  },
  "dmg_arm64": {
   "archivo": "Estadistico_FilmFlow.dmg",
-  "url": "https://github.com/FilmFlowEstadistico/filmflowestadistico.github.io/releases/download/v1.1.35/Estadistico_FilmFlow.dmg",
-  "tamano": 53609237
+  "url": "https://github.com/FilmFlowEstadistico/filmflowestadistico.github.io/releases/download/v1.1.36/Estadistico_FilmFlow.dmg",
+  "tamano": 53611621
  },
  "mac_intel": {
   "archivo": "Estadistico_FilmFlow_Mac_Intel.zip",
-  "url": "https://github.com/FilmFlowEstadistico/filmflowestadistico.github.io/releases/download/v1.1.35/Estadistico_FilmFlow_Mac_Intel.zip",
-  "tamano": 43208242,
-  "sha256": "9479b4fd03c8c2c171e7870809cc4106029e7130a2a9132ccb8a22daf46f1430"
+  "url": "https://github.com/FilmFlowEstadistico/filmflowestadistico.github.io/releases/download/v1.1.36/Estadistico_FilmFlow_Mac_Intel.zip",
+  "tamano": 43216122,
+  "sha256": "64860ae4682c4bb010c94c78c4ed01a8ace163964f4031336aed5d628071e3da"
  },
  "dmg_intel": {
   "archivo": "Estadistico_FilmFlow_Intel.dmg",
-  "url": "https://github.com/FilmFlowEstadistico/filmflowestadistico.github.io/releases/download/v1.1.35/Estadistico_FilmFlow_Intel.dmg",
-  "tamano": 57637523
+  "url": "https://github.com/FilmFlowEstadistico/filmflowestadistico.github.io/releases/download/v1.1.36/Estadistico_FilmFlow_Intel.dmg",
+  "tamano": 57664989
  }
 }

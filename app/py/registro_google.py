@@ -713,6 +713,40 @@ def _formulas_de(servicio, sid, pestana, rango):
     return r.get("values", [])
 
 
+def contar_dia_en_total(servicio, sid, pestana, fila_dia):
+    """La fila TOTAL de «Datos Generales» que NO suma el día recién escrito porque queda justo al borde (ADL: «Dia 903» en la fila 4 y
+    =SUM(E5:E83)): se amplía cada suma de esa fila para que lo cuente (=SUM(E4:E83)); así el Resumen General (que lee esa fila) y el
+    promedio por día se actualizan. Solo sumas de una misma columna con el día pegado a un extremo. Devuelve las celdas cambiadas."""
+    valores = _formulas_de(servicio, sid, pestana, "A1:AZ400")
+    fila_tot = None
+    for r in range(fila_dia, len(valores)):            # (fila_dia desde 1 = índice de la fila de abajo)
+        if any(isinstance(x, str) and x.strip().upper() == "TOTAL" for x in valores[r][:4]):
+            fila_tot = r
+            break
+    if fila_tot is None:
+        return []
+    patron = re.compile(r"(?<![A-Za-z!$'])(\$?)([A-Z]{1,3})(\$?)(\d+):(\$?)\2(\$?)(\d+)")
+
+    def ampliar(m):
+        a, b = int(m.group(4)), int(m.group(7))
+        if fila_dia == a - 1:
+            a = fila_dia
+        elif fila_dia == b + 1:
+            b = fila_dia
+        else:
+            return m.group(0)
+        return f"{m.group(1)}{m.group(2)}{m.group(3)}{a}:{m.group(5)}{m.group(2)}{m.group(6)}{b}"
+
+    nuevas = []
+    for c, v in enumerate(valores[fila_tot]):
+        if isinstance(v, str) and v.startswith("=") and "SUM" in v.upper():
+            w = patron.sub(ampliar, v)
+            if w != v:
+                nuevas.append((pestana, f"{_letra_col(c)}{fila_tot + 1}", w))
+    escribir_valores(servicio, sid, nuevas)
+    return [c for _p, c, _w in nuevas]
+
+
 def aplicar_estructura(servicio, sid, pestanas, est):
     """Cambios de forma del estadístico antes de escribir los números (los arma estadistico_core.proponer):
     1) inserta columnas (cámara nueva) y filas (su fila en el Resumen General, o el día que no tenía fila), con el formato de al lado;
