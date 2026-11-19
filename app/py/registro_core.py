@@ -722,7 +722,31 @@ FECHA_DIA_TABLA_DMY = re.compile(r"^\s*(\d{1,2})/(\d{1,2})/(\d{2,4})\s+(\d{1,4})
 FECHA_SOLA = re.compile(r"^\s*(\d{4})-?(\d{2})-?(\d{2})\b.*\n\s*Shooting\s+Date\b", re.M)
 FECHA_DIA_TABLA = re.compile(r"^\s*(\d{4})-?(\d{2})-?(\d{2})\s+(\d{1,3})\b.*\n\s*Shooting\s+Date\s+Shooting\s+Day", re.M)
 # Sin pdftotext (Mac sin Homebrew) pdfplumber deja el guion de esas fechas como un símbolo privado («2026\ue08808\ue08817»)
-GUION_PDF = str.maketrans({"\ue088": "-"})
+GUION_PDF = str.maketrans({"\ue088": "-", "\uee55": "-"})        # (dos formas del guion en la fuente de Silverstack)
+
+
+def _unir_nombres_partidos(texto):
+    """Silverstack parte en varias líneas un nombre largo de BIN o de cinta: «ADL-» / «LOOK&FELL- 33 1:22:27 h … 6.60 GB» / «1811»
+    (= «ADL-LOOK&FELL-1811»). Se junta en una sola línea: un trozo suelto que termina en «-» va pegado al nombre de la línea siguiente,
+    y si un nombre termina en «-», la palabra suelta de la línea de abajo es el final del nombre."""
+    lineas = (texto or "").splitlines()
+    salida, i = [], 0
+    suelta = lambda l: bool(l.strip()) and len(l.split()) == 1
+    while i < len(lineas):
+        l = lineas[i]
+        if suelta(l) and l.strip().endswith("-") and i + 1 < len(lineas) and lineas[i + 1].strip():
+            sig = lineas[i + 1].lstrip()
+            lineas[i + 1] = re.match(r"^\s*", lineas[i + 1]).group(0) + l.strip() + sig
+            i += 1
+            continue
+        partes = l.split()
+        if partes and partes[0].endswith("-") and len(partes) > 1 and i + 1 < len(lineas) and suelta(lineas[i + 1]) \
+                and not re.match(r"(Page|Video|Audio|Camera|Bin|Reel|Tape|Codec)\b", lineas[i + 1].strip()):
+            l = l.replace(partes[0], partes[0] + lineas[i + 1].strip(), 1)
+            i += 1
+        salida.append(l)
+        i += 1
+    return "\n".join(salida)
 FILA_CINTA = re.compile(r"^\s*(\S+)\s+(\d+)\s+" + _DUR + r"\s*(h|min|sec)\s+(\d+)\s+([\d.,]+)\s*(KB|MB|GB|TB)\s*$")
 
 
@@ -812,7 +836,7 @@ def totales_del_reporte(texto):
 def leer_reporte(ruta, texto=None):
     """Lee el PDF: día, fecha y los BIN (clips, duración en segundos, GB).
     También devuelve `sin_leer`: las líneas de la tabla de BIN que no pudo entender."""
-    texto = (texto if texto is not None else rd.texto_del_pdf(ruta)).translate(GUION_PDF)
+    texto = _unir_nombres_partidos((texto if texto is not None else rd.texto_del_pdf(ruta)).translate(GUION_PDF))
     m = FOLDER_DIA.search(texto) or FOLDER_DIA.search(Path(ruta).name)
     dia_de_carpeta = bool(m)                           # el día viene en la carpeta (20261009_DAY051): no se busca la fila por fecha
     if not m:
@@ -2579,6 +2603,20 @@ def construir_solicitudes(sheet_id, reporte, filas, hist, cfg, filas_en_hoja, me
 
     sol = []
     preparado = next((b for b in bloques if not b["material"] and b["clave"] == reporte["dia"]), None)
+    plantilla_total = []
+    if not preparado and ref is None and merges:
+        # Hoja nueva con los días PREPARADOS EN LA PLANTILLA (caso ADL, 19/11/2026): sin nada escrito, pero cada día ya trae
+        # «DIA» combinada en varias filas (7 a 13) y su fila de total debajo (14, con B:F combinadas y =SUM). Combinar solo parte de
+        # esas celdas lo rechaza Google (400 «Debes seleccionar todas las celdas de un rango combinado»): se usa el bloque de la
+        # plantilla como un día preparado (se separa, se ajustan las filas a las tarjetas y el total queda en SU fila).
+        c_dia, r0 = col.get("dia", 0), fmt["primera"]
+        m0 = next((m for m in merges if m.get("startRowIndex", 0) + 1 == r0 and m.get("startColumnIndex", 0) == c_dia
+                   and m.get("endColumnIndex", 0) - m.get("startColumnIndex", 0) == 1 and m.get("endRowIndex", 0) > r0), None)
+        if m0:
+            r1 = m0["endRowIndex"]
+            plantilla_total = [m for m in merges if m.get("startRowIndex", 0) == r1 and m.get("endRowIndex", 0) == r1 + 1]
+            preparado = {"filas": list(range(r0, r1 + 1)), "total": (r1 + 1) if plantilla_total else None, "material": False,
+                         "clave": reporte["dia"]}
     if preparado and ref is None and con_total != bool(preparado["total"]):
         con_total = bool(preparado["total"])          # hoja sin ningún día escrito con días preparados sin fila de total: se respeta eso
     if preparado and (con_total == bool(preparado["total"])):
@@ -2730,6 +2768,11 @@ def construir_solicitudes(sheet_id, reporte, filas, hist, cfg, filas_en_hoja, me
         for clave, todas_ in (("dia", estilo["et_todas"]), ("fecha_col", estilo["fecha_todas"])):
             if clave in col and not todas_ and n > 1:
                 nuevas.append(rango(inicio, final, col[clave], col[clave] + 1))
+    if plantilla_total and total:                      # la fila de total queda combinada igual que en la plantilla (B:F)
+        for m in plantilla_total:
+            r_ = rango(total, total, m.get("startColumnIndex", 0), m.get("endColumnIndex", 0))
+            if r_ not in nuevas:
+                nuevas.append(r_)
     for rg_ in nuevas:
         sol.append({"mergeCells": {"range": rg_, "mergeType": "MERGE_ALL"}})
     hist["escritura"] = {"inicio": inicio, "final": final, "total": total, "filas": esperado, "total_celdas": esperado_total,

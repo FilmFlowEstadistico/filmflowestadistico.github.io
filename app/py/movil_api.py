@@ -1280,7 +1280,15 @@ def html_formulario_rollo(f):
     s += f'<label data-solo="camara">Letra de la cámara<input name="letra" maxlength="1" value="{esc(base.get("letra", ""))}" autocapitalize="characters"></label>'
     s += '<p class="nota" data-solo="camara">una sola letra, ej. M</p>'
     s += f'<label data-solo="otro">El BIN empieza con<input name="otro" value="{esc(base.get("otro", ""))}"></label><p class="nota" data-solo="otro">ej. D###_   (# = un número)</p>'
-    s += f'<label>Nombre del rollo<input name="nombre" value="{esc(base.get("nombre", ""))}" placeholder="se llena solo"></label>'
+    # el nombre lo pone la app (según el tipo y la letra): se ve, pero no se escribe a mano. Un rollo que ya tenía su nombre lo conserva.
+    auto = _nombre_auto(tipo, base.get("letra", ""), base.get("otro", ""))
+    fijo = (base.get("nombre") or "").strip()
+    fijo = fijo if fijo and fijo != auto else ""
+    f["nombre_fijo"] = fijo
+    s += (f'<label>Nombre del rollo<input name="nombre" class="nombre-auto" readonly tabindex="-1" value="{esc(fijo or auto)}" '
+          f'data-tipos=\'{json.dumps(rc.NOMBRE_POR_TIPO, ensure_ascii=False)}\'{" data-fijo=\"1\"" if fijo else ""} '
+          'title="Lo pone la app según el tipo de rollo y la letra de la cámara"></label>'
+          '<p class="nota">Se pone solo según el tipo y la letra (no se escribe a mano).</p>')
     s += f'<label>Rental<input name="rental" value="{esc(base.get("rental", ""))}" placeholder="ej. CONGO"></label>'
     s += f'<label>Modelo<input name="modelo" value="{esc(base.get("modelo", ""))}" placeholder="ej. ARRI ALEXA 35"></label>'
     s += (f'<label>Tarjetas (# Mag)<input name="mag" type="number" min="1" max="30" value="{mag}"></label>'
@@ -1297,6 +1305,18 @@ def html_formulario_rollo(f):
     return s
 
 
+def _nombre_auto(tipo, letra="", otro=""):
+    """El nombre que la app le pone al rollo: «Cámara L», «Sonido», «Drones»…"""
+    if tipo == "camara":
+        l = (letra or "").strip().upper()
+        return f"Cámara {l}" if len(l) == 1 and l.isalpha() else ""
+    if tipo == "otro":
+        pats = rc.normalizar_patrones(otro or "")
+        m = re.match(r"^([A-Za-z])(?![A-Za-z])", pats[0]) if pats else None
+        return f"Cámara {m.group(1).upper()}" if m else ""
+    return rc.NOMBRE_POR_TIPO.get(tipo, "")
+
+
 def leer_formulario_rollo(p, f):
     """Valida lo que se llenó en el formulario (igual que «guardar» del Mac). Devuelve (valor, error)."""
     tipo = p.get("tipo", "camara")
@@ -1304,17 +1324,7 @@ def leer_formulario_rollo(p, f):
         patrones = rc.patrones_de_tipo(tipo, p.get("letra", ""), p.get("otro", ""))
     except ErrorRegistro as e:
         return None, str(e)
-    nombre = (p.get("nombre") or "").strip()
-    if not nombre:
-        if tipo == "camara":
-            l = (p.get("letra") or "").strip().upper()
-            nombre = f"Cámara {l}" if len(l) == 1 and l.isalpha() else ""
-        elif tipo == "otro":
-            pats = rc.normalizar_patrones(p.get("otro", ""))
-            m = re.match(r"^([A-Za-z])(?![A-Za-z])", pats[0]) if pats else None
-            nombre = f"Cámara {m.group(1).upper()}" if m else ""
-        else:
-            nombre = rc.NOMBRE_POR_TIPO.get(tipo, "")
+    nombre = f.get("nombre_fijo") or _nombre_auto(tipo, p.get("letra", ""), p.get("otro", ""))   # nunca el escrito a mano
     rental, modelo = (p.get("rental") or "").strip(), (p.get("modelo") or "").strip()
     if not (nombre and rental and modelo):
         return None, "Llena el nombre, el rental y el modelo."

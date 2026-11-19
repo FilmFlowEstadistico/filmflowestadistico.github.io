@@ -588,7 +588,19 @@ function alternarTipo(form) {
   const sel = form.querySelector('[data-form="tipo"]:checked');
   if (!sel) return;
   form.querySelectorAll("[data-solo]").forEach((el) => { el.style.display = el.dataset.solo === sel.value ? "" : "none"; });
+  nombreAuto(form);
 }
+// «Nombre del rollo» lo pone la app (Cámara L, Sonido…): se actualiza solo con el tipo y la letra; no se escribe a mano
+function nombreAuto(form) {
+  const n = form && form.querySelector("input.nombre-auto"); if (!n || n.dataset.fijo) return;
+  const tipo = (form.querySelector('[data-form="tipo"]:checked') || {}).value || "camara";
+  let v = "";
+  if (tipo === "camara") { const l = ((form.querySelector('input[name="letra"]') || {}).value || "").trim().toUpperCase(); v = /^[A-Z]$/.test(l) ? "Cámara " + l : ""; }
+  else if (tipo === "otro") { const m = ((form.querySelector('input[name="otro"]') || {}).value || "").trim().match(/^([A-Za-z])(?![A-Za-z])/); v = m ? "Cámara " + m[1].toUpperCase() : ""; }
+  else { try { v = JSON.parse(n.dataset.tipos || "{}")[tipo] || ""; } catch (e) {} }
+  n.value = v;
+}
+document.addEventListener("input", (e) => { if (e.target.matches && e.target.matches('form.formulario input[name="letra"], form.formulario input[name="otro"]')) nombreAuto(e.target.closest("form")); });
 function ponerBarra(html) {
   const b = $("#accion-fija");
   if (html) { b.innerHTML = '<div class="in">' + html + "</div>"; b.hidden = false; document.documentElement.style.setProperty("--fijo", (b.offsetHeight || 80) + "px"); }

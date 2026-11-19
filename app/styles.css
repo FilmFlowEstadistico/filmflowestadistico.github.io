@@ -776,3 +776,4 @@ button.enlace:hover{text-decoration:underline}
 .correo-comp .chip-c.fuera{background:#fce8e6!important;border-color:#f28b82!important;opacity:.8}
 .correo-comp #fuera-aviso:empty{display:none}
 .correo-acciones.solo-copiar .copiar{margin-left:0}.correo-acciones.solo-copiar{gap:8px}
+input.nombre-auto{background:var(--seleccion)!important;color:var(--texto2)!important;cursor:default}
