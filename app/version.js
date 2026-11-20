@@ -1,1 +1,1 @@
-self.FF_VERSION={id:'ff-1795127229',app:'1.1.36',fecha:'19/11/2026 17:27'};
+self.FF_VERSION={id:'ff-1795186523',app:'1.1.37',fecha:'20/11/2026 09:55'};

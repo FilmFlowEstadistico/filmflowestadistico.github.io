@@ -2560,14 +2560,21 @@ def guardar_rollo(p):
         return {"ir": "ajustes", "recargar": True}
     cfg = rc.cargar_config()
     cambio_color = None
+    cambios_hoja = {}
     try:
         if f["datos"].get("id"):
             i = next(j for j, g in enumerate(cfg["grupos"]) if g["id"] == f["datos"]["id"])
             valor.pop("posicion", None)
-            antes_color = (cfg["grupos"][i].get("color") or "").upper()
+            antes = dict(cfg["grupos"][i])
+            antes_color = (antes.get("color") or "").upper()
             cfg["grupos"][i].update(valor)
-            if (cfg["grupos"][i].get("color") or "") and cfg["grupos"][i]["color"].upper() != antes_color:
-                cambio_color = cfg["grupos"][i]["id"]
+            g_ = cfg["grupos"][i]
+            if (g_.get("color") or "") and g_["color"].upper() != antes_color:
+                cambio_color = g_["id"]
+                cambios_hoja["color"] = g_["color"]
+            for k in ("rental", "modelo"):                  # lo que se escribe en cada tarjeta del estatus
+                if (g_.get(k) or "").strip() and (g_.get(k) or "").strip() != (antes.get(k) or "").strip():
+                    cambios_hoja[k] = g_[k].strip()
         else:
             lugar = valor.pop("posicion", len(cfg["grupos"]))
             g = rc.agregar_grupo(cfg, **valor)
@@ -2579,9 +2586,47 @@ def guardar_rollo(p):
         return {"ir": "ajustes", "recargar": True}
     E["formulario"] = None
     E.update(resumen=None, cache_firma={})
-    if cambio_color and rc.estatus(cfg):
-        return _ofrecer_color_en_hojas(cfg, cambio_color)
+    if cambios_hoja and rc.estatus(cfg):
+        return _ofrecer_rollo_en_hojas(cfg, f["datos"]["id"], cambios_hoja)
     return {"ir": "ajustes", "recargar": True}
+
+
+def _ofrecer_rollo_en_hojas(cfg, gid, cambios):
+    """Cambió el color, el rental o el modelo de un rollo: se buscan sus tarjetas en TODOS los estatus y, si algo no coincide con la
+    configuración nueva, se muestra qué se cambiaría y se pregunta antes de tocar las hojas."""
+    g = next(x for x in cfg["grupos"] if x["id"] == gid)
+    try:
+        plan = rg.plan_rollo_en_hojas(rg.conectar(), cfg, gid, cambios.get("color"), cambios.get("rental"), cambios.get("modelo"))
+    except ErrorRegistro as e:
+        return _con_mensaje(pagina_ajustes(), f"Guardé los cambios, pero no pude revisar tus hojas: {e}", "aviso")
+    resp = pagina_ajustes()
+    if not plan:
+        return resp
+    E["plan_rollo"] = {"gid": gid, "color": cambios.get("color"), "plan": plan}
+    que = [x for x, k in (("el color", "color"), ("el rental", "rental"), ("el modelo", "modelo")) if k in cambios]
+    resp["confirmar"] = {"titulo": "Cambiarlo también en tus hojas",
+                         "texto": f"Cambiaste {', '.join(que[:-1]) + ' y ' + que[-1] if len(que) > 1 else que[0]} de «{g['nombre']}».\n\n"
+                                  f"En tus hojas de estatus esto no coincide todavía:\n{rg.texto_plan_rollo(plan)}\n\n"
+                                  "¿Lo cambio en las hojas para que queden con la configuración nueva? Solo se tocan esas celdas "
+                                  "(rental, modelo y color de las tarjetas de este rollo); clips, duración y GB no se tocan.",
+                         "accion": "rollo_en_hojas_ok", "boton": "Cambiar en las hojas"}
+    return resp
+
+
+def rollo_en_hojas_ok(p):
+    pr = E.pop("plan_rollo", None)
+    if not pr:
+        return pagina_ajustes()
+    try:
+        pintadas, escritas, malas = rg.aplicar_rollo_en_hojas(rg.conectar(), pr["plan"], pr["color"])
+    except ErrorRegistro as e:
+        return _con_mensaje(pagina_ajustes(), f"No pude cambiarlo en las hojas: {e}", "error")
+    E.update(resumen=None, cache_firma={})
+    hecho = " y ".join(x for x in ((f"{pintadas} tarjetas de color" if pintadas else ""), (f"{escritas} celdas de rental/modelo" if escritas else "")) if x)
+    if malas:
+        return _con_mensaje(pagina_ajustes(), f"Cambié {hecho or 'lo que pude'}, pero {len(malas)} no quedaron bien (por ejemplo la fila "
+                                              f"{malas[0][2]} de «{malas[0][1]}»). Revísalas en la hoja.", "aviso")
+    return _con_mensaje(pagina_ajustes(), f"Listo: cambié {hecho} en tus hojas (lo comprobé leyendo de vuelta).", "ok")
 
 
 def _ofrecer_color_en_hojas(cfg, gid):
@@ -3317,7 +3362,7 @@ ACCIONES = {k: v for k, v in globals().items() if callable(v) and not k.startswi
     "mover_rollo", "elegir_proyecto", "renombrar_pedir", "renombrar_ok", "nuevo_pedir", "nuevo_ok", "nuevo_conectar", "eliminar_proyecto", "eliminar_ok",
     "correo_pdf", "correo_usar_registro", "correo_prefijo", "cuenta", "sincronizar", "sync_enlace", "nuevo_dia",
     "reporte_abrir", "reporte_cerrar", "reporte_tipo", "reporte_tocar", "reporte_mes", "reporte_rango", "reporte_unidad", "reporte_modo", "reporte_contenido",
-    "reporte_crear", "reporte_semana", "reporte_semanas", "reporte_preset", "reporte_seccion", "reporte_orden", "reporte_modo_rapido", "reporte_nombre", "resumen_panel", "resumen_muestra", "correo_destinos", "correo_elegir_firma", "abreviatura_guardar", "correo_nombre", "firma_agregar", "firma_quitar", "correo_armar", "correo_resultado", "correo_enviar", "color_en_hojas_ok", "equipo_agregar", "equipo_cancelar", "equipo_guardar", "equipo_dar_acceso", "equipo_quitar", "equipo_quitar_ok", "unirse", "unirse_pedir"}}
+    "reporte_crear", "reporte_semana", "reporte_semanas", "reporte_preset", "reporte_seccion", "reporte_orden", "reporte_modo_rapido", "reporte_nombre", "resumen_panel", "resumen_muestra", "correo_destinos", "correo_elegir_firma", "abreviatura_guardar", "correo_nombre", "firma_agregar", "firma_quitar", "correo_armar", "correo_resultado", "correo_enviar", "color_en_hojas_ok", "rollo_en_hojas_ok", "equipo_agregar", "equipo_cancelar", "equipo_guardar", "equipo_dar_acceso", "equipo_quitar", "equipo_quitar_ok", "unirse", "unirse_pedir"}}
 
 
 def _firma_config():

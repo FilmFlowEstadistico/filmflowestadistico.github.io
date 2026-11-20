@@ -544,6 +544,93 @@ def aplicar_color_rollo(servicio, plan, color):
     return hechas, malas
 
 
+def plan_rollo_en_hojas(servicio, cfg, gid, color=None, rental=None, modelo=None):
+    """Lo que hay que cambiar en TODOS los estatus para que las tarjetas del rollo `gid` queden con su configuración nueva:
+    color (fondo de CAM, Modelo y # Mag), RENTAL y Modelo (solo las celdas con algo escrito que no coincida: una celda vacía, p. ej. la
+    parte de abajo de una celda combinada, no se toca). Solo lectura. Devuelve [{sid, titulo, pestana, sheet_id, filas (a pintar),
+    cols, col_cam, valores: [(fila, col, «RENTAL»|«Modelo», antes, nuevo)]}] (solo pestañas con algo que cambiar)."""
+    import registro_core as rc
+    color = str(color or "").upper()
+    salida = []
+    for e in rc.estatus(cfg):
+        try:
+            sid = id_de_enlace(e["enlace"])
+            r = servicio.spreadsheets().get(spreadsheetId=sid, fields="properties.title,sheets.properties(sheetId,title,sheetType)").execute()
+        except Exception:
+            continue
+        ids = {h["properties"]["title"]: h["properties"]["sheetId"] for h in r.get("sheets", [])
+               if h["properties"].get("sheetType", "GRID") == "GRID"}
+        titulo = r.get("properties", {}).get("title", e.get("titulo", ""))
+        for pestana in ids:
+            try:
+                valores = leer_hoja(servicio, sid, pestana)
+            except ErrorRegistro:
+                continue
+            fmt = getattr(valores, "fmt", None)
+            if not fmt or fmt["col"].get("cam") is None or not len(valores):
+                continue
+            filas = rc.filas_de_rollo(valores, cfg, gid)
+            if not filas:
+                continue
+            pintar = []
+            if color:
+                actuales = colores_de_columna(servicio, sid, pestana, fmt["col"]["cam"], min(filas), max(filas))
+                pintar = [f for f in filas if actuales.get(f, "").upper() != color]
+            cambios = []
+            for clave, nuevo, rotulo in (("rental", rental, "RENTAL"), ("modelo", modelo, "Modelo")):
+                c = fmt["col"].get(clave)
+                if nuevo is None or c is None:
+                    continue
+                for f in filas:
+                    fila = list(valores[f - fmt["primera"]])
+                    antes = fila[c] if c < len(fila) else ""
+                    if isinstance(antes, str) and antes.strip() and not antes.startswith("=") and antes.strip() != str(nuevo).strip():
+                        cambios.append((f, c, rotulo, antes.strip(), str(nuevo).strip()))
+            if pintar or cambios:
+                cols = [fmt["col"][k] for k in ("cam", "modelo", "mag") if fmt["col"].get(k) is not None]
+                salida.append({"sid": sid, "titulo": titulo, "pestana": pestana, "sheet_id": ids.get(pestana),
+                               "filas": pintar, "cols": cols, "col_cam": fmt["col"]["cam"], "valores": cambios})
+    return salida
+
+
+def aplicar_rollo_en_hojas(servicio, plan, color=None):
+    """Aplica `plan_rollo_en_hojas`: pinta y escribe, y lee de vuelta para comprobar.
+    Devuelve (tarjetas pintadas, celdas escritas, lista de lo que no quedó: (titulo, pestaña, fila))."""
+    pintadas, malas = 0, []
+    if color:
+        con_color = [p for p in plan if p["filas"]]
+        if con_color:
+            pintadas, malas = aplicar_color_rollo(servicio, con_color, color)
+    escritas = 0
+    for p in plan:
+        if not p["valores"]:
+            continue
+        escribir_celdas(servicio, p["sid"], [(p["pestana"], f"{_letra_col(c)}{f}", nuevo) for f, c, _r, _a, nuevo in p["valores"]])
+        leidos = leer_celdas(servicio, p["sid"], [(p["pestana"], f"{_letra_col(c)}{f}") for f, c, _r, _a, _n in p["valores"]])
+        for f, c, _r, _a, nuevo in p["valores"]:
+            if str(leidos.get((p["pestana"], f"{_letra_col(c)}{f}"), "")).strip() == nuevo:
+                escritas += 1
+            else:
+                malas.append((p["titulo"], p["pestana"], f))
+    return pintadas, escritas, malas
+
+
+def texto_plan_rollo(plan):
+    """El resumen para la pregunta de antes de cambiar: por archivo/pestaña, cuántas tarjetas se pintan y qué valores cambian."""
+    partes = []
+    for p in plan:
+        cosas = []
+        if p["filas"]:
+            cosas.append(f"{len(p['filas'])} {'tarjeta' if len(p['filas']) == 1 else 'tarjetas'} de color")
+        for rotulo in ("RENTAL", "Modelo"):
+            v = [x for x in p["valores"] if x[2] == rotulo]
+            if v:
+                antes = sorted({x[3] for x in v})
+                cosas.append(f"{len(v)} de {rotulo} ({', '.join(antes[:3])}{'…' if len(antes) > 3 else ''} → {v[0][4]})")
+        partes.append(f"«{p['titulo']}» (pestaña {p['pestana']}): " + "; ".join(cosas))
+    return "\n".join(partes)
+
+
 def texto_plan_color(plan):
     """««FF-GS-FO-06 … HDT» (pestaña HDT): 3 tarjetas (filas 33–35)» para la pregunta de antes de pintar."""
     partes = []
