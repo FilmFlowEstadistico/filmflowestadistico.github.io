@@ -354,7 +354,7 @@ def html_para_enviar(html_cuerpo, firma_html=None):
     return f"<!doctype html><html><body>{html_cuerpo}{firma}</body></html>"
 
 
-def armar_mime(de, para, cc, asunto_, texto, html_cuerpo, adjuntos=(), firma_html=None):
+def armar_mime(de, para, cc, asunto_, texto, html_cuerpo, adjuntos=(), firma_html=None, cco=()):
     """El correo completo (texto + HTML + adjuntos) listo para Gmail. `adjuntos`: [(nombre, tipo_mime, bytes)]."""
     from email.message import EmailMessage
     from email import policy
@@ -363,6 +363,8 @@ def armar_mime(de, para, cc, asunto_, texto, html_cuerpo, adjuntos=(), firma_htm
     msg["To"] = ", ".join(para)
     if cc:
         msg["Cc"] = ", ".join(cc)
+    if cco:                                        # copia oculta: Gmail se lo entrega y quita este renglón antes de que llegue
+        msg["Bcc"] = ", ".join(cco)
     msg["Subject"] = asunto_
     tf = texto_de_firma(firma_html) if firma_html else ""
     msg.set_content((texto or "") + (f"\n\n-- \n{tf}\n" if tf else ""))

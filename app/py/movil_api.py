@@ -1277,8 +1277,9 @@ def html_formulario_rollo(f):
     s += '<label>Tipo de rollo</label><div class="radios">' + "".join(
         f'<label class="radio"><input type="radio" name="tipo" value="{k}" {"checked" if k == tipo else ""} data-form="tipo"><span>{esc(t)}</span></label>'
         for k, t in TIPOS_FORM if k in ("camara", "sonido") or k == tipo) + "</div>"
-    s += f'<label data-solo="camara">Letra de la cámara<input name="letra" maxlength="1" value="{esc(base.get("letra", ""))}" autocapitalize="characters"></label>'
-    s += '<p class="nota" data-solo="camara">una sola letra, ej. M</p>'
+    s += (f'<label data-solo="camara">Letra de la cámara<input name="letra" maxlength="2" value="{esc(base.get("letra", ""))}" autocapitalize="characters" '
+          'title="La letra con que se marcan las tarjetas de esta cámara: una (M) o dos si así la marcan (GA)"></label>')
+    s += '<p class="nota" data-solo="camara">una letra (ej. M) o dos si así marcan esa cámara (ej. GA)</p>'
     s += (f'<label data-solo="otro sonido">El BIN empieza con<input name="otro" value="{esc(base.get("otro", ""))}" '
           'title="Cómo empieza el nombre de las tarjetas de este rollo (# = un número)"></label>'
           '<p class="nota" data-solo="otro">ej. D###_   (# = un número)</p>'
@@ -1312,7 +1313,7 @@ def _nombre_auto(tipo, letra="", otro=""):
     """El nombre que la app le pone al rollo: «Cámara L», «Sonido», «Drones»…"""
     if tipo == "camara":
         l = (letra or "").strip().upper()
-        return f"Cámara {l}" if len(l) == 1 and l.isalpha() else ""
+        return f"Cámara {l}" if 1 <= len(l) <= 2 and l.isalpha() else ""
     if tipo == "otro":
         pats = rc.normalizar_patrones(otro or "")
         m = re.match(r"^([A-Za-z])(?![A-Za-z])", pats[0]) if pats else None
@@ -2525,8 +2526,13 @@ def pagina_app(p=None):
            '<p class="nota pie" data-solo="web">Estadístico FilmFlow · versión para celular y web. La apariencia, el descanso y la sesión son solo de '
            'este aparato; tus proyectos se comparten con tus otros equipos a través de tu cuenta de Google.</p>'
            '<p class="nota pie" data-solo="mac">Estadístico FilmFlow · app del Mac. La apariencia y el descanso son solo de este Mac; tus proyectos '
-           'se comparten con el celular y tus otros equipos a través de tu cuenta de Google.</p>']
+           'se comparten con el celular y tus otros equipos a través de tu cuenta de Google.</p>']   # (los créditos van al pie de TODAS las páginas: index.html)
     return {"pagina": "app", "html": "".join(out)}
+
+
+# Créditos de quien hizo la app (pie de «Ajustes de la app» y pantalla de entrada): discretos, siempre iguales.
+CREDITOS = ('<p class="creditos" title="Estadístico FilmFlow: aplicación hecha a la medida para FilmFlow">'
+            'Desarrollada por <b>Santiago Andrés Torres</b> · uso exclusivo de FilmFlow · © 2026</p>')
 
 
 def agregar_rollo(p):
@@ -2865,59 +2871,71 @@ def _nombre_y_correo(d):
     return (m.group(1).strip(), m.group(2).strip()) if m else ("", (d or "").strip())
 
 
+CAMPOS_CORREO = ("para", "cc", "cco")                 # Para, CC (con copia) y CCO (copia oculta: nadie más ve esos correos)
+ROTULO_CAMPO = {"para": "Para", "cc": "CC", "cco": "CCO"}
+SIGUIENTE_CAMPO = {"para": "cc", "cc": "para", "cco": "cc"}   # la flecha: Para ↔ CC; de CCO vuelve a CC (a CCO se pasa con «+ CCO»)
+
+
 def correo_destinos(p):
-    """La cadena de correos de ESTE proyecto (queda guardada para siempre): agregar, quitar o pasar entre Para y CC."""
+    """La cadena de correos de ESTE proyecto (queda guardada para siempre): agregar, quitar o pasar entre Para, CC y CCO."""
     cfg = rc.cargar_config()
     cc_ = _cfg_correo(cfg)
-    para, cc = list(cc_.get("para") or []), list(cc_.get("cc") or [])
+    listas = {k: list(cc_.get(k) or []) for k in CAMPOS_CORREO}
     malos, toast, deshacer = [], "", None
     op = p.get("op")
     clave = (p.get("correo") or "").strip().lower()
     igual = lambda d: correo_core.solo_correo(d).lower() == clave
     if op == "agregar":
         validos, malos = correo_core.separar_correos(p.get("texto") or "")
-        destino = cc if p.get("campo") == "cc" else para
-        otro = para if destino is cc else cc
+        campo = p.get("campo") if p.get("campo") in CAMPOS_CORREO else "para"
+        destino = listas[campo]
         nuevos = 0
         for v in validos:
             c = correo_core.solo_correo(v).lower()
             if any(correo_core.solo_correo(x).lower() == c for x in destino):
                 continue
-            otro[:] = [x for x in otro if correo_core.solo_correo(x).lower() != c]      # si estaba en el otro campo, se pasa
+            for k in CAMPOS_CORREO:                      # si estaba en otro campo, se pasa a este
+                if k != campo:
+                    listas[k][:] = [x for x in listas[k] if correo_core.solo_correo(x).lower() != c]
             destino.append(v)
             nuevos += 1
-        toast = (f"{nuevos} {'correo agregado' if nuevos == 1 else 'correos agregados'} a {'CC' if destino is cc else 'Para'}" if nuevos
+        toast = (f"{nuevos} {'correo agregado' if nuevos == 1 else 'correos agregados'} a {ROTULO_CAMPO[campo]}" if nuevos
                  else ("" if malos else "Ya estaban en la cadena"))
     elif op == "quitar":
-        for campo, lista in (("para", para), ("cc", cc)):
-            for k, x in enumerate(lista):
-                if igual(x):
-                    deshacer = {"campo": campo, "direccion": x, "pos": k}
-                    del lista[k]
-                    toast = f"Quité a {correo_core.solo_correo(x)} de este proyecto"
-                    break
+        for campo in CAMPOS_CORREO:
+            lista = listas[campo]
+            k = next((k for k, x in enumerate(lista) if igual(x)), None)
+            if k is not None:
+                x = lista.pop(k)
+                deshacer = {"campo": campo, "direccion": x, "pos": k}
+                toast = f"Quité a {correo_core.solo_correo(x)} de este proyecto"
+                break
     elif op == "volver":                                  # «Deshacer» después de quitar
         d = p.get("deshacer") or {}
-        lista = cc if d.get("campo") == "cc" else para
-        if d.get("direccion") and not any(correo_core.solo_correo(x).lower() == correo_core.solo_correo(d["direccion"]).lower() for x in para + cc):
+        lista = listas.get(d.get("campo")) or listas["para"]
+        todos = [x for k in CAMPOS_CORREO for x in listas[k]]
+        if d.get("direccion") and not any(correo_core.solo_correo(x).lower() == correo_core.solo_correo(d["direccion"]).lower() for x in todos):
             lista.insert(min(int(d.get("pos") or 0), len(lista)), d["direccion"])
-    elif op == "mover":
-        for de, a_ in ((para, cc), (cc, para)):
-            x = next((x for x in de if igual(x)), None)
+    elif op == "mover":                                   # Para → CC → CCO → Para (o al campo que se pida)
+        for campo in CAMPOS_CORREO:
+            x = next((x for x in listas[campo] if igual(x)), None)
             if x:
-                de.remove(x)
-                a_.append(x)
-                toast = f"{correo_core.solo_correo(x)} pasó a {'CC' if a_ is cc else 'Para'}"
+                a_ = p.get("a") if p.get("a") in CAMPOS_CORREO and p.get("a") != campo else SIGUIENTE_CAMPO[campo]
+                listas[campo].remove(x)
+                listas[a_].append(x)
+                toast = f"{correo_core.solo_correo(x)} pasó a {ROTULO_CAMPO[a_]}"
                 break
     else:                                                 # forma antigua: el texto completo de cada campo
-        for campo in ("para", "cc"):
+        for campo in CAMPOS_CORREO:
             if campo in p:
                 v, m = correo_core.separar_correos(p.get(campo) or "")
-                (para if campo == "para" else cc)[:] = v
+                listas[campo][:] = v
                 malos += m
-    cc_["para"], cc_["cc"] = para, correo_core.sin_repetir(cc, para)
+    cc_["para"] = listas["para"]
+    cc_["cc"] = correo_core.sin_repetir(listas["cc"], listas["para"])
+    cc_["cco"] = correo_core.sin_repetir(listas["cco"], listas["para"] + cc_["cc"])
     rc.guardar_config(cfg)
-    return {"guardado": True, "para": len(para), "cc": len(cc_["cc"]), "malos": malos, "html": html_destinos(cfg),
+    return {"guardado": True, "para": len(cc_["para"]), "cc": len(cc_["cc"]), "cco": len(cc_["cco"]), "malos": malos, "html": html_destinos(cfg),
             **({"toast": toast} if toast else {}), **({"deshacer": deshacer} if deshacer else {})}
 
 
@@ -2970,6 +2988,7 @@ def _preparar_envio(p, correo=None, adjuntos=None):
     fuera = {x.strip().lower() for x in p.get("fuera") or []}
     para = [x for x in cc_.get("para") or [] if correo_core.solo_correo(x).lower() not in fuera]
     cc = [x for x in correo_core.sin_repetir(cc_.get("cc"), para) if correo_core.solo_correo(x).lower() not in fuera]
+    cco = [x for x in correo_core.sin_repetir(cc_.get("cco"), para + cc) if correo_core.solo_correo(x).lower() not in fuera]
     if not para:
         return None, {"error": "Falta a quién enviarlo: agrega al menos un correo en «Para» (Destinatarios de este proyecto)."}
     asunto_ = (p.get("asunto") or "").strip()
@@ -2987,8 +3006,8 @@ def _preparar_envio(p, correo=None, adjuntos=None):
         return None, {"confirmar_envio": f"Este correo («{asunto_}») ya se envió el {ya.get('fecha', '')}. ¿Lo envío otra vez?"}
     firma = (_firma_del_proyecto(cc_) or {}).get("html") or None
     mime = correo_core.armar_mime(f"Data Management Colombia FilmFlow <{correo}>", para, cc, asunto_, p.get("texto") or "",
-                                  p.get("html") or "", adjuntos, firma)
-    return {"mime": mime, "para": para, "cc": cc, "asunto": asunto_, "adjuntos": len(adjuntos), "total": total}, None
+                                  p.get("html") or "", adjuntos, firma, cco=cco)
+    return {"mime": mime, "para": para, "cc": cc, "cco": cco, "asunto": asunto_, "adjuntos": len(adjuntos), "total": total}, None
 
 
 def _respuesta_de_gmail(codigo, texto, correo):
@@ -3014,7 +3033,7 @@ def correo_armar(p):
     if r:
         return r
     return {"mime": d["mime"], "url": correo_core.URL_ENVIAR, "cortes": correo_core.cortes_de_adjuntos(d["mime"]),
-            "para": len(d["para"]), "cc": len(d["cc"]), "asunto": d["asunto"], "total": d["total"]}
+            "para": len(d["para"]), "cc": len(d["cc"]), "cco": len(d["cco"]), "asunto": d["asunto"], "total": d["total"]}
 
 
 def correo_resultado(p):
@@ -3026,13 +3045,13 @@ def correo_resultado(p):
     cfg = rc.cargar_config()
     cc_ = _cfg_correo(cfg)
     registro = {"asunto": p.get("asunto") or "", "fecha": _dt.now().strftime("%d/%m/%Y %H:%M"), "para": int(p.get("para") or 0),
-                "cc": int(p.get("cc") or 0), "adjuntos": int(p.get("adjuntos") or 0), "mb": round(float(p.get("total") or 0) / 1e6, 1),
+                "cc": int(p.get("cc") or 0), "cco": int(p.get("cco") or 0), "adjuntos": int(p.get("adjuntos") or 0), "mb": round(float(p.get("total") or 0) / 1e6, 1),
                 "firma": (_firma_del_proyecto(cc_) or {}).get("nombre") or ""}
     enviados = cc_.setdefault("enviados", [])
     enviados.insert(0, registro)
     del enviados[60:]
     rc.guardar_config(cfg)
-    return {"enviado": registro, "toast": f"Correo enviado a {registro['para'] + registro['cc']} personas con {registro['adjuntos']} adjuntos"}
+    return {"enviado": registro, "toast": f"Correo enviado a {registro['para'] + registro['cc'] + registro['cco']} personas con {registro['adjuntos']} adjuntos"}
 
 
 def correo_enviar(p):
@@ -3043,13 +3062,13 @@ def correo_enviar(p):
     codigo, texto = web_shim.enviar_crudo(correo_core.URL_ENVIAR, d["mime"], "message/rfc822")
     if codigo not in (200, 201):
         return _respuesta_de_gmail(codigo, texto, web_shim.ESTADO.get("correo") or "")
-    return correo_resultado({"codigo": 200, "asunto": d["asunto"], "para": len(d["para"]), "cc": len(d["cc"]),
+    return correo_resultado({"codigo": 200, "asunto": d["asunto"], "para": len(d["para"]), "cc": len(d["cc"]), "cco": len(d["cco"]),
                              "adjuntos": d["adjuntos"], "total": d["total"]})
 
 
 def _chip_correo(d, campo):
     nombre, correo = _nombre_y_correo(d)
-    otro = "CC" if campo == "para" else "Para"
+    otro = ROTULO_CAMPO[SIGUIENTE_CAMPO[campo]]
     return (f'<span class="chip-c" data-correo="{esc(correo.lower())}" title="Toca para NO enviarle a {esc(correo)} solo esta vez (sigue en la cadena)">'
             f'<span class="chip-t">{f"<b>{esc(nombre)}</b> " if nombre else ""}<small>{esc(correo)}</small></span>'
             f'<button type="button" class="chip-mover" data-correo="{esc(correo)}" title="Pasar a {otro}" aria-label="Pasar a {otro}">{"↓" if campo == "para" else "↑"}</button>'
@@ -3062,7 +3081,8 @@ VISIBLES_CADENA = 6        # con más personas, la fila se pliega («+N más»)
 def html_destinos(cfg):
     """Para y CC arriba del correo, como en Gmail (fichas). Se vuelve a dibujar sola al agregar/quitar."""
     cc_ = _cfg_correo(cfg)
-    para, cc = cc_.get("para") or [], cc_.get("cc") or []
+    para, cc, cco = cc_.get("para") or [], cc_.get("cc") or [], cc_.get("cco") or []
+    ultimo = "cco" if cco else "cc"                      # la fila CCO solo aparece cuando hay alguien (como en Gmail)
 
     def fila(campo, lista, etq, ayuda):
         mas = len(lista) - VISIBLES_CADENA
@@ -3072,20 +3092,23 @@ def html_destinos(cfg):
                       f'title="Ver toda la cadena de {etq}">+{mas} más</button>')
         if not lista:
             chips = '<span class="c-vacio">Nadie todavía</span>'
-        if campo == "cc":
+        if campo == ultimo:
             chips += '<button type="button" class="chip-agregar" data-js="dest_mostrar_agregar" title="Agregar correos a la cadena de este proyecto">+ Agregar</button>'
         return (f'<div class="c-fila"><span class="c-etq" title="{ayuda}">{etq} <small id="n-{campo}">{len(lista)}</small></span>'
                 f'<div class="chips-correo{" muchas" if mas > 0 else ""}" data-campo="{campo}">{chips}</div></div>')
 
-    agregar = ('<div class="agregar-correo"' + ('' if not (para or cc) else ' hidden') + '>'
+    agregar = ('<div class="agregar-correo"' + ('' if not (para or cc or cco) else ' hidden') + '>'
                '<textarea id="nuevo-correo" rows="1" spellcheck="false" placeholder="Pega uno o varios correos" '
                'title="Escribe o pega correos: uno por línea, separados por coma, o «Nombre &lt;correo&gt;». Quedan guardados en este proyecto."></textarea>'
                '<button type="button" class="btn mini acento" data-js="dest_agregar_para" title="Agregar estos correos a «Para»">+ Para</button>'
-               '<button type="button" class="btn mini" data-js="dest_agregar_cc" title="Agregar estos correos a «CC» (con copia)">+ CC</button></div>'
+               '<button type="button" class="btn mini" data-js="dest_agregar_cc" title="Agregar estos correos a «CC» (con copia)">+ CC</button>'
+               '<button type="button" class="btn mini" data-js="dest_agregar_cco" title="Agregar estos correos a «CCO» (copia oculta: los demás no ven estos correos)">+ CCO</button></div>'
                '<p class="nota" id="destinos-aviso"></p>')
     agregar += '<div id="fuera-aviso" role="alert"></div>'          # rojo: a quién NO le llega este correo (lo pinta app.js)
     return (f'<div id="destinos" class="c-destinos">{fila("para", para, "Para", "Destinatarios principales de este proyecto")}'
-            f'{fila("cc", cc, "CC", "Con copia: el resto de la cadena de este proyecto")}{agregar}</div>')
+            f'{fila("cc", cc, "CC", "Con copia: el resto de la cadena de este proyecto")}'
+            + (fila("cco", cco, "CCO", "Copia oculta: les llega el correo, pero los demás no ven estos correos") if cco else "")
+            + f'{agregar}</div>')
 
 
 def vista_firma(cfg):

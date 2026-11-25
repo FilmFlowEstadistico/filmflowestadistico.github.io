@@ -119,7 +119,8 @@ function mostrarPortada(modo) {
       <h1>Tus estadísticos,<br><span>en un solo lugar.</span></h1>
       <p class="p-txt">Registra cada día de rodaje y mira el resumen completo de tu proyecto, leído siempre de tus hojas de Google.</p>
       <button class="p-google" data-js="conectar">${G_SVG}<span>Iniciar sesión con Google</span></button>
-      <p class="p-nota">Tus proyectos se sincronizan con la app del Mac.</p></div>`;
+      <p class="p-nota">Tus proyectos se sincronizan con la app del Mac.</p>
+      <p class="creditos p-creditos">Desarrollada por <b>Santiago Andrés Torres</b> · uso exclusivo de FilmFlow · © 2026</p></div>`;
   } else {
     portada.classList.add("descanso"); portada.onclick = () => ocultarPortada();
     const pintar = () => {
@@ -595,7 +596,7 @@ function nombreAuto(form) {
   const n = form && form.querySelector("input.nombre-auto"); if (!n || n.dataset.fijo) return;
   const tipo = (form.querySelector('[data-form="tipo"]:checked') || {}).value || "camara";
   let v = "";
-  if (tipo === "camara") { const l = ((form.querySelector('input[name="letra"]') || {}).value || "").trim().toUpperCase(); v = /^[A-Z]$/.test(l) ? "Cámara " + l : ""; }
+  if (tipo === "camara") { const l = ((form.querySelector('input[name="letra"]') || {}).value || "").trim().toUpperCase(); v = /^[A-Z]{1,2}$/.test(l) ? "Cámara " + l : ""; }
   else if (tipo === "otro") { const m = ((form.querySelector('input[name="otro"]') || {}).value || "").trim().match(/^([A-Za-z])(?![A-Za-z])/); v = m ? "Cámara " + m[1].toUpperCase() : ""; }
   else { try { v = JSON.parse(n.dataset.tipos || "{}")[tipo] || ""; } catch (e) {} }
   n.value = v;
@@ -805,6 +806,7 @@ const JS = {
   dest_todos() { fueraEstaVez.clear(); aplicarFuera(); },
   dest_agregar_para() { agregarDestinos("para"); },
   dest_agregar_cc() { agregarDestinos("cc"); },
+  dest_agregar_cco() { agregarDestinos("cco"); },
   async dest_deshacer() { if (ultimoQuitado) { const d = ultimoQuitado; ultimoQuitado = null; const av = $("#destinos-aviso"); if (av) delete av.dataset.fijo; await opDestinos({ op: "volver", deshacer: d }); toast("Listo, volvió a la cadena"); } },
   firma_nueva() { editorFirma(); },
   async firma_borrar(el) {
@@ -1879,10 +1881,11 @@ async function enviarCorreo(forzar, sinPreguntar) {
   const asunto = $("#correo-asunto").value.trim();
   const para = document.querySelectorAll('.chips-correo[data-campo="para"] .chip-c:not(.fuera)').length;
   const cc = document.querySelectorAll('.chips-correo[data-campo="cc"] .chip-c:not(.fuera)').length;
+  const cco = document.querySelectorAll('.chips-correo[data-campo="cco"] .chip-c:not(.fuera)').length;
   if (!para) { await modal({ titulo: "Falta a quién enviarlo", texto: "Agrega al menos un correo en «Para» (Destinatarios de este proyecto).", si: "Entendido", no: "" }); return; }
   const fop = $("#tarjeta-firma .firma-op.on"), firma = fop ? (fop.dataset.firma || "sin firma") : "sin elegir (sale sin firma)";
   if (!sinPreguntar && !(await modal({ titulo: "¿Envío el correo?", si: "Enviar",
-      texto: `«${asunto}»\n\nPara: ${para} · CC: ${cc}${fueraEstaVez.size ? `\n\n⚠ ESTA VEZ NO LES LLEGA (${fueraEstaVez.size}): ${[...fueraEstaVez].join(", ")}\n` : ""}\nFirma: ${firma}\nAdjuntos: ${adjuntos.length} (${mb(total)})\n\nSe envía desde tu cuenta de Gmail; queda en tus «Enviados».` }))) return;
+      texto: `«${asunto}»\n\nPara: ${para} · CC: ${cc}${cco ? ` · CCO (oculta): ${cco}` : ""}${fueraEstaVez.size ? `\n\n⚠ ESTA VEZ NO LES LLEGA (${fueraEstaVez.size}): ${[...fueraEstaVez].join(", ")}\n` : ""}\nFirma: ${firma}\nAdjuntos: ${adjuntos.length} (${mb(total)})\n\nSe envía desde tu cuenta de Gmail; queda en tus «Enviados».` }))) return;
   modoEnviando(true);
   try {
     if (adjuntos.some((a) => a.estado === "leyendo")) {
@@ -1921,7 +1924,7 @@ async function enviarCorreo(forzar, sinPreguntar) {
     let fin;
     if (res.codigo === 0) {                   // sin respuesta de Gmail: NUNCA se reintenta solo (pudo haber salido: no se duplica)
       fin = { error: "No tuve respuesta de Gmail (¿internet?). Revisa tus «Enviados» en Gmail antes de volver a enviarlo, para no mandarlo dos veces." };
-    } else fin = await api("correo_resultado", { codigo: res.codigo, texto: res.texto, asunto: r.asunto, para: r.para, cc: r.cc, adjuntos: adjuntos.length, total: r.total });
+    } else fin = await api("correo_resultado", { codigo: res.codigo, texto: res.texto, asunto: r.asunto, para: r.para, cc: r.cc, cco: r.cco, adjuntos: adjuntos.length, total: r.total });
     await terminarEnvio(fin);
   } finally {
     envioXhr = null; modoEnviando(false);
@@ -1940,8 +1943,8 @@ async function terminarEnvio(fin) {
     if (fin.error) { adjuntos.forEach((a) => { a.estado = "listo"; a.pct = 1; }); pintarAdjuntos(); await modal({ titulo: "No se envió el correo", texto: fin.error, si: "Entendido", no: "" }); return; }
     if (fin.enviado) {
       adjuntos.forEach((a) => { a.estado = "enviado"; a.pct = 1; }); pintarAdjuntos();
-      progresoEnvio(`✔ Enviado a ${fin.enviado.para + fin.enviado.cc} personas`, 1);
-      const e = $("#correo-enviado"); if (e) e.textContent = `✔ Enviado el ${fin.enviado.fecha} a ${fin.enviado.para + fin.enviado.cc} personas con ${fin.enviado.adjuntos} adjuntos${fin.enviado.firma ? " · firma " + fin.enviado.firma : ""}.`;
+      progresoEnvio(`✔ Enviado a ${fin.enviado.para + fin.enviado.cc + (fin.enviado.cco || 0)} personas`, 1);
+      const e = $("#correo-enviado"); if (e) e.textContent = `✔ Enviado el ${fin.enviado.fecha} a ${fin.enviado.para + fin.enviado.cc + (fin.enviado.cco || 0)} personas con ${fin.enviado.adjuntos} adjuntos${fin.enviado.firma ? " · firma " + fin.enviado.firma : ""}.`;
       fueraEstaVez.clear(); aplicarFuera();
       toast(fin.toast || "Correo enviado");
     }

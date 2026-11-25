@@ -270,7 +270,7 @@ def _quitar_permiso(http, sid, correo, que):
                 raise _error_drive(c2, t2, que)
 
 
-_CORREO_PRIVADO = ("para", "cc", "enviados", "firma")    # del correo: solo para quien envía (datos de otras personas)
+_CORREO_PRIVADO = ("para", "cc", "cco", "enviados", "firma")    # del correo: solo para quien envía (datos de otras personas)
 
 
 def _para_ficha(p):

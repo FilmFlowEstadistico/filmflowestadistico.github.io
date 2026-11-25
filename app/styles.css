@@ -777,3 +777,14 @@ button.enlace:hover{text-decoration:underline}
 .correo-comp #fuera-aviso:empty{display:none}
 .correo-acciones.solo-copiar .copiar{margin-left:0}.correo-acciones.solo-copiar{gap:8px}
 input.nombre-auto{background:var(--seleccion)!important;color:var(--texto2)!important;cursor:default}
+/* créditos de quien hizo la app (pie de Ajustes de la app y pantalla de entrada): discretos */
+.creditos{text-align:center;font-size:11.5px;color:var(--texto2);opacity:.75;margin:22px 8px 30px;letter-spacing:.01em}
+.creditos b{font-weight:600}
+.p-creditos{margin-top:28px}
+/* créditos al pie de TODAS las páginas (fuera de #vista: no se redibujan) */
+#pie-creditos{display:block;max-width:1080px;margin:8px auto 18px;padding:0 16px}
+body.sin-sesion #pie-creditos{display:none}
+@media (min-width:1000px) and (min-height:560px){
+  html.en-reporte .rep-grid{height:calc(100dvh - var(--rep-top, 220px) - var(--fijo) - 44px)}
+  html.en-reporte #pie-creditos{margin:6px auto 0}
+}

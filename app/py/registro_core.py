@@ -345,8 +345,8 @@ def grupo_de_audio(nombre, cfg, modelo=None, recientes=None):
 def patron_de_camara(letra):
     """Cámara con letra: 'M' -> 'M_' (reconoce los BIN que empiezan con M_)."""
     letra = (letra or "").strip().upper()
-    if len(letra) != 1 or not letra.isalpha():
-        raise ErrorRegistro("Escribe UNA sola letra (A, B, C, M…).")
+    if not (1 <= len(letra) <= 2) or not letra.isalpha():
+        raise ErrorRegistro("Escribe la letra de la cámara: una (A, B, M…) o dos si así la marcan (GA, KB…).")
     return f"{letra}_"
 
 
@@ -354,7 +354,9 @@ def patrones_de_camara(letra):
     """Una cámara con letra se reconoce con CUALQUIER forma de nombrar la tarjeta: «C_0001_1IH7» (ARRI ALEXA 35) y «C001_1112YE»
     (RED, Sony, Canon, ARRI clásica, Blackmagic…): la letra y un guion bajo, o la letra y un número."""
     base = patron_de_camara(letra)
-    return [base, base[0] + "#"]
+    if len(base) == 2:
+        return [base, base[0] + "#"]
+    return [base, base[:-1] + "#", base[:-1] + "-"]          # dos letras: GA_ · GA001 · GA-001
 
 
 def normalizar_patrones(texto):
@@ -373,7 +375,7 @@ def normalizar_patrones(texto):
     return salida
 
 
-_PATRON_DE_LETRA = re.compile(r"[A-Za-z](_(#{1,4}_?)?|#{1,4}_?)")
+_PATRON_DE_LETRA = re.compile(r"[A-Za-z](_(#{1,4}_?)?|#{1,4}_?)|[A-Za-z]{2}(_|#{1,4}_?|-)")
 
 
 def letra_de_camara(patrones):
@@ -382,8 +384,10 @@ def letra_de_camara(patrones):
     patrones = list(patrones or [])
     if not patrones or patrones in (PATRONES_DRONES, PATRONES_CELULARES):
         return None
-    if all(_PATRON_DE_LETRA.fullmatch(str(x)) for x in patrones) and len({str(x)[0].upper() for x in patrones}) == 1:
-        return str(patrones[0])[0].upper()
+    if all(_PATRON_DE_LETRA.fullmatch(str(x)) for x in patrones):
+        letras = {re.match(r"[A-Za-z]+", str(x)).group().upper() for x in patrones}
+        if len(letras) == 1:
+            return letras.pop()
     return None
 
 
@@ -512,7 +516,28 @@ def identificar_bin(nombre):
             except (TypeError, ValueError):
                 rollo = None
             return {"marca": marca, "tipo": tipo, "letra": letra, "rollo": rollo}
-    return None
+    return camara_con_prefijo(t)
+
+
+# Rollos MARCADOS A MANO con varias letras (25/11/2026): el DIT antepone la sigla del proyecto (o algo suyo) a la letra de la cámara:
+# «ADL-A001-2411», «ADLA001», «ADL_B003», «ADLA001C002_2411» → cámara A (o B), rollo 1 (o 3). Se SUMA a las demás formas: solo se mira
+# si ninguna marca conocida reconoce el nombre. La sigla son 2–6 letras; luego UNA letra (la cámara) y su número de rollo (2–4 cifras,
+# no más: «ADLD0022411» no es la cámara D). Lo que el PDF diga (audio en «Audio Tapes», «Camera(s)») sigue mandando.
+_CAMARA_CON_PREFIJO = re.compile(r"^([A-Za-z]{2,6})[-_ .]?([A-Za-z])(\d{2,4})(?!\d)")   # (número pegado a la letra: no «BETACAM_001»)
+# Cámara con DOS letras marcada a mano: «GA-001», «GA001», «KB_003» (25/11/2026, ADL DAY002: «Camera(s)» = GA).
+_CAMARA_DOS_LETRAS = re.compile(r"^([A-Za-z]{2})[-_ .]?(\d{2,4})(?!\d)")
+
+
+def camara_con_prefijo(nombre):
+    t = str(nombre or "").strip()
+    m = _CAMARA_DOS_LETRAS.match(t)
+    if m:
+        return {"marca": "cámara marcada a mano", "tipo": "camara", "letra": m.group(1).upper(), "rollo": int(m.group(2))}
+    m = _CAMARA_CON_PREFIJO.match(t)
+    if not m or ES_NOMBRE_DE_SONIDO.match(m.group(1)):
+        return None
+    return {"marca": "cámara marcada a mano", "tipo": "camara", "letra": m.group(2).upper(), "rollo": int(m.group(3)),
+            "prefijo": m.group(1).upper()}
 
 
 def tipo_de_grupo(g):
@@ -565,7 +590,7 @@ def color_sugerido(tipo, letra="", usados=()):
 def letra_de_cam(cam):
     """La letra que el PDF pone en la columna «Camera(s)» del BIN: «A_» → A, «C» → C. Varias cámaras o nada → ''."""
     t = str(cam or "").strip().rstrip("_")
-    return t.upper() if len(t) == 1 and t.isalpha() else ""
+    return t.upper() if 1 <= len(t) <= 2 and t.isalpha() else ""            # «GA»: cámara con DOS letras (marcada a mano)
 
 
 def letra_de_bin(nombre, cam=""):
@@ -588,6 +613,9 @@ def mbps_de(gb, seg):
 
 def adivinar_tipo(nombre_bin, cam=""):
     """Qué parece ser un BIN que no conocemos: (tipo, letra, otro). `cam`: lo que el PDF pone en «Camera(s)» para ese BIN."""
+    lc = letra_de_cam(cam)
+    if len(lc) == 2 and str(nombre_bin).strip().upper().startswith(lc):
+        return "camara", lc, ""                                         # el PDF dice «GA» y la tarjeta empieza con GA: cámara GA
     letra = parece_camara(nombre_bin)
     if letra:
         return "camara", letra, ""
@@ -1993,7 +2021,10 @@ def clave_de_bin(nombre, claves=None, completo=False):
     emb = letra_incrustada(t)
     if emb:                                         # DJI_001_H10 es de la cámara H, no de una «cámara DJI»
         return emb[0]
-    m = re.match(r"^([A-Za-z]+)_?(\d+)(?:([A-Za-z]{1,2})(?![A-Za-z0-9]))?", t)
+    k_ = identificar_bin(t)
+    if k_ and k_.get("prefijo"):                    # «ADL-A001-2411» / «ADLA001»: marcada a mano con la sigla del proyecto → cámara A
+        return k_["letra"]
+    m = re.match(r"^([A-Za-z]+)[-_]?(\d+)(?:([A-Za-z]{1,2})(?![A-Za-z0-9]))?", t)
     if not m:
         # Sin número: «BETACAM_TEST» es una cámara propia llamada BETACAM (no la cámara B); una sola letra se queda como está.
         palabra = re.match(r"[A-Za-z]+", t)
@@ -2015,6 +2046,8 @@ def clave_de_bin(nombre, claves=None, completo=False):
             if c in existentes:
                 return c
         return candidatas[0]
+    if len(pre) == 2 and not suf and _CAMARA_DOS_LETRAS.match(t):
+        return pre                                  # «GA-001»: la cámara GA (dos letras), no la G
     return pre[:1] + suf if completo else pre[:1]
 
 
@@ -2349,6 +2382,15 @@ def rollo_nuevo_sugerido(cfg, reporte, valores=None):
     b0 = sorted(sin, key=lambda b: b["nombre"])[0]
     nombre, cam, es_audio = b0["nombre"], b0.get("letra") or b0.get("cam") or "", bool(b0.get("audio"))
     tipo, letra, otro = adivinar_tipo(nombre, cam)
+    pesa_imagen = (mbps_de(b0.get("gb") or 0, b0.get("seg") or 0) or 0) > MBPS_SEGURO_IMAGEN
+    k_son = identificar_bin(nombre)
+    if (tipo == "sonido" or (k_son and k_son["tipo"] == "sonido")) and not es_audio and ((b0.get("verif") or {}).get("tipo") == "camara" or b0.get("audio") is False
+                                              or letra_de_cam(cam) or pesa_imagen):
+        k_ = camara_con_prefijo(nombre) or (_CAMARA_DOS_LETRAS.match(nombre.strip()) and {"letra": nombre.strip()[:2].upper()})
+        # («SR001» parece una grabadora, pero el PDF dice que es imagen: cámara SR)
+        lc_ = letra_de_cam(cam)
+        if k_ or lc_:
+            tipo, letra, otro = "camara", (lc_ if lc_ and nombre.upper().startswith(lc_) else (k_ or {}).get("letra") or lc_), ""
     if es_audio and tipo != "sonido":                 # el PDF dice que es audio: es SONIDO (con la forma propia de su nombre)
         k = identificar_bin(nombre)
         otro = patron_de_palabra(nombre) if (k and k["tipo"] == "sonido" and re.match(r"[A-Za-z]{2}", nombre)) else patron_corto(nombre)
